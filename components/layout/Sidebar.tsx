@@ -4,21 +4,18 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Home, 
-  Users, 
-  FileText, 
-  Settings, 
-  HelpCircle, 
+import {
+  Home,
+  Users,
+  FileText,
+  Settings,
+  HelpCircle,
   CreditCard,
-  BarChart3,
-  Folder,
   Star,
   Zap,
   ChevronLeft,
   ChevronRight,
   Plus,
-  Search,
   Bell,
   Sparkles,
   User,
@@ -89,20 +86,6 @@ export function Sidebar({
       icon: FileText,
       badge: taskCount > 0 ? taskCount.toString() : null,
       description: 'Writing assignments'
-    },
-    {
-      id: 'projects',
-      label: 'Projects',
-      icon: Folder,
-      badge: null,
-      description: 'Organize your work'
-    },
-    {
-      id: 'analytics',
-      label: 'Analytics',
-      icon: BarChart3,
-      badge: null,
-      description: 'Performance insights'
     }
   ];
 
@@ -223,32 +206,22 @@ export function Sidebar({
       {!isCollapsed && (
         <div className="p-4 border-b border-gray-100">
           <div className="space-y-2">
-            <Button 
+            <Button
               className="w-full bg-green-600 hover:bg-green-700 text-white justify-start font-medium"
               onClick={() => onViewChange('create-agent')}
             >
               <Plus className="h-4 w-4 mr-2" />
               New AI Agent
             </Button>
-            <div className="grid grid-cols-2 gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="text-xs border-gray-200 hover:bg-green-600 hover:text-white"
-                onClick={() => onViewChange('create-task')}
-              >
-                <FileText className="h-3 w-3 mr-1" />
-                New Task
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="text-xs border-gray-200 hover:bg-green-600 hover:text-white"
-              >
-                <Search className="h-3 w-3 mr-1" />
-                Search
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs border-gray-200 hover:bg-green-600 hover:text-white"
+              onClick={() => onViewChange('create-task')}
+            >
+              <FileText className="h-3 w-3 mr-1" />
+              New Task
+            </Button>
           </div>
         </div>
       )}

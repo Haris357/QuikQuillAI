@@ -5,9 +5,13 @@ export interface Agent {
   writingStyle: string;
   tone: string;
   keywords?: string[];
+  description?: string;
+  expertise?: string;
+  targetAudience?: string;
+  contentTypes?: string[];
+  referenceFiles?: string[];
   createdAt: string;
   userId: string;
-  referenceFiles?: string[];
 }
 
 export interface Task {
@@ -21,6 +25,15 @@ export interface Task {
   updatedAt: string;
   attachments?: string[];
   revisions: Revision[];
+  priority?: string;
+  deadline?: string;
+  taskType?: string;
+  wordCount?: number;
+  instructions?: string;
+  targetAudience?: string;
+  tone?: string;
+  keywords?: string[];
+  references?: string[];
 }
 
 export interface Revision {

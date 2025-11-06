@@ -70,10 +70,10 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
     writingStyle: editingAgent?.writingStyle || '',
     tone: editingAgent?.tone || '',
     keywords: editingAgent?.keywords || [],
-    description: '',
-    expertise: '',
-    targetAudience: '',
-    contentTypes: [] as string[],
+    description: editingAgent?.description || '',
+    expertise: editingAgent?.expertise || '',
+    targetAudience: editingAgent?.targetAudience || '',
+    contentTypes: editingAgent?.contentTypes || [] as string[],
   });
   const [keywordInput, setKeywordInput] = useState('');
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>(editingAgent?.keywords || []);
@@ -102,13 +102,18 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
       writingStyle: formData.writingStyle,
       tone: formData.tone,
       keywords: selectedKeywords,
+      description: formData.description,
+      expertise: formData.expertise,
+      targetAudience: formData.targetAudience,
+      contentTypes: formData.contentTypes,
+      referenceFiles: editingAgent?.referenceFiles || [],
     });
     onClose();
-    setFormData({ 
-      name: '', 
-      role: '', 
-      writingStyle: '', 
-      tone: '', 
+    setFormData({
+      name: '',
+      role: '',
+      writingStyle: '',
+      tone: '',
       keywords: [],
       description: '',
       expertise: '',

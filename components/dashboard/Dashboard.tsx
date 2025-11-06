@@ -10,10 +10,8 @@ import { AgentCard } from './AgentCard';
 import { CreateAgentModal } from './CreateAgentModal';
 import { AddTaskModal } from './AddTaskModal';
 import { AgentSelectionModal } from './AgentSelectionModal';
-import { FiltersPanel, FilterState } from './FiltersPanel';
-import { AnalyticsView } from './AnalyticsView';
-import { ProjectsView } from './ProjectsView';
-import { TaskList } from './TaskList';
+import { TaskCardList } from './TaskCardList';
+import { AgentCardList } from './AgentCardList';
 import { EditorModal } from '../editor/EditorModal';
 import { SettingsModal } from '../modals/SettingsModal';
 import { UpgradeModal } from '../modals/UpgradeModal';
@@ -62,16 +60,21 @@ export function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [filters, setFilters] = useState<FilterState>({
-    search: '',
-    selectedAgent: 'all',
-    status: 'all',
-    dateRange: 'all',
-    writingStyle: 'all',
-    tone: 'all'
-  });
-  const [tokensUsed] = useState(2450);
-  const [tokensLimit] = useState(10000);
+  const [tokensUsed, setTokensUsed] = useState(0);
+  const [tokensLimit] = useState(1000000); // 1 million token limit for Gemini Flash
+
+  // Update token usage periodically
+  useEffect(() => {
+    const updateTokenUsage = async () => {
+      const { getTotalTokensUsed } = await import('@/lib/gemini');
+      setTokensUsed(getTotalTokensUsed());
+    };
+
+    updateTokenUsage();
+    const interval = setInterval(updateTokenUsage, 2000); // Update every 2 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!user || !database) {
@@ -187,7 +190,20 @@ export function Dashboard() {
     }
   };
 
-  const handleAddTask = async (taskData: { title: string; description: string; attachments?: string[] }) => {
+  const handleAddTask = async (taskData: {
+    title: string;
+    description: string;
+    attachments?: string[];
+    priority?: string;
+    deadline?: string;
+    taskType?: string;
+    wordCount?: number;
+    instructions?: string;
+    targetAudience?: string;
+    tone?: string;
+    keywords?: string[];
+    references?: string[];
+  }) => {
     if (!user || !selectedAgentId || !database) {
       // Demo mode - create task locally
       if (!selectedAgentId) return;
@@ -206,6 +222,15 @@ export function Dashboard() {
         updatedAt: new Date().toISOString(),
         attachments: taskData.attachments || [],
         revisions: [],
+        priority: taskData.priority,
+        deadline: taskData.deadline,
+        taskType: taskData.taskType,
+        wordCount: taskData.wordCount,
+        instructions: taskData.instructions,
+        targetAudience: taskData.targetAudience,
+        tone: taskData.tone,
+        keywords: taskData.keywords,
+        references: taskData.references,
       };
       
       setTasks(prev => [...prev, newTask]);
@@ -214,13 +239,17 @@ export function Dashboard() {
       // Generate initial content in demo mode
       try {
         const { generateInitialContent } = await import('@/lib/gemini');
-        
+
         const generatedContent = await generateInitialContent(
           taskData.title,
           taskData.description,
           selectedAgent.writingStyle,
-          selectedAgent.tone,
-          selectedAgent.keywords || []
+          taskData.tone || selectedAgent.tone, // Use task tone or fallback to agent tone
+          taskData.keywords && taskData.keywords.length > 0 ? taskData.keywords : selectedAgent.keywords || [],
+          taskData.wordCount,
+          taskData.targetAudience,
+          taskData.instructions,
+          taskData.references
         );
         
         const updatedTask = {
@@ -264,6 +293,15 @@ export function Dashboard() {
         updatedAt: new Date().toISOString(),
         attachments: taskData.attachments || [],
         revisions: [],
+        priority: taskData.priority,
+        deadline: taskData.deadline,
+        taskType: taskData.taskType,
+        wordCount: taskData.wordCount,
+        instructions: taskData.instructions,
+        targetAudience: taskData.targetAudience,
+        tone: taskData.tone,
+        keywords: taskData.keywords,
+        references: taskData.references,
       };
       
       await set(newTaskRef, newTask);
@@ -272,13 +310,17 @@ export function Dashboard() {
       // Generate initial content
       try {
         const { generateInitialContent } = await import('@/lib/gemini');
-        
+
         const generatedContent = await generateInitialContent(
           taskData.title,
           taskData.description,
           selectedAgent.writingStyle,
-          selectedAgent.tone,
-          selectedAgent.keywords || []
+          taskData.tone || selectedAgent.tone, // Use task tone or fallback to agent tone
+          taskData.keywords && taskData.keywords.length > 0 ? taskData.keywords : selectedAgent.keywords || [],
+          taskData.wordCount,
+          taskData.targetAudience,
+          taskData.instructions,
+          taskData.references
         );
         
         const updatedTask = {
@@ -353,37 +395,6 @@ export function Dashboard() {
 
   const getAgentTasks = (agentId: string) => tasks.filter(t => t.agentId === agentId);
 
-  const applyFilters = (items: any[], type: 'agents' | 'tasks') => {
-    return items.filter(item => {
-      // Search filter
-      const searchMatch = filters.search === '' || 
-        item.name?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        item.title?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        item.role?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        item.description?.toLowerCase().includes(filters.search.toLowerCase());
-      
-      if (!searchMatch) return false;
-      
-      if (type === 'agents') {
-        // Writing style filter
-        const styleMatch = filters.writingStyle === 'all' || item.writingStyle === filters.writingStyle;
-        // Tone filter
-        const toneMatch = filters.tone === 'all' || item.tone === filters.tone;
-        
-        return styleMatch && toneMatch;
-      } else {
-        // Status filter for tasks
-        const statusMatch = filters.status === 'all' || item.status === filters.status;
-        // Agent filter for tasks
-        const agentMatch = filters.selectedAgent === 'all' || item.agentId === filters.selectedAgent;
-        
-        return statusMatch && agentMatch;
-      }
-    });
-  };
-
-  const filteredAgents = applyFilters(agents, 'agents');
-  const filteredTasks = applyFilters(tasks, 'tasks');
 
   // Statistics
   const totalTasks = tasks.length;
@@ -608,7 +619,7 @@ export function Dashboard() {
           <h2 className="text-2xl font-bold text-gray-900">AI Writer Agents</h2>
           <p className="text-gray-600">Manage your specialized AI writing assistants</p>
         </div>
-        <Button 
+        <Button
           onClick={() => setShowCreateAgent(true)}
           className="bg-green-600 hover:bg-green-700 text-white"
         >
@@ -617,80 +628,15 @@ export function Dashboard() {
         </Button>
       </div>
 
-      {/* Search Bar */}
-      <div className="w-full">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search agents by name, role, or keywords..."
-            value={filters.search}
-            onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-            className="pl-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
-          />
-        </div>
-      </div>
-      {/* Search and Filters */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1">
-          <FiltersPanel 
-            agents={agents}
-            onFiltersChange={setFilters}
-          />
-        </div>
-        <div className="lg:col-span-3">
-          {/* Agents Grid */}
-          {filteredAgents.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-6">
-              {filteredAgents.map((agent, index) => (
-                <motion.div
-                  key={agent.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                >
-                  <AgentCard
-                    agent={agent}
-                    tasks={getAgentTasks(agent.id)}
-                    onEditAgent={(agent) => {
-                      setEditingAgent(agent);
-                      setShowCreateAgent(true);
-                    }}
-                    onDeleteAgent={handleDeleteAgent}
-                    onAddTask={(agentId) => {
-                      setSelectedAgentId(agentId);
-                      setShowAddTask(true);
-                    }}
-                    onViewTasks={(agentId) => {
-                      setFilters(prev => ({ ...prev, selectedAgent: agentId }));
-                      setCurrentView('tasks');
-                    }}
-                  />
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No agents found</h3>
-              <p className="text-gray-600 mb-4">
-                {filters.search || filters.writingStyle !== 'all' || filters.tone !== 'all' 
-                  ? 'Try adjusting your filters' 
-                  : 'Create your first AI writer agent to get started'
-                }
-              </p>
-              {!(filters.search || filters.writingStyle !== 'all' || filters.tone !== 'all') && (
-                <Button 
-                  onClick={() => setShowCreateAgent(true)}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Your First Agent
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Agent Card List */}
+      <AgentCardList
+        agents={agents}
+        onEditAgent={(agent) => {
+          setEditingAgent(agent);
+          setShowCreateAgent(true);
+        }}
+        onDeleteAgent={handleDeleteAgent}
+      />
     </div>
   );
 
@@ -700,80 +646,25 @@ export function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Tasks</h2>
-          <p className="text-gray-600">
-            {selectedAgentId 
-              ? `Tasks for ${agents.find(a => a.id === selectedAgentId)?.name}`
-              : 'All writing tasks across your agents'
-            }
-          </p>
+          <p className="text-gray-600">All writing tasks across your agents</p>
         </div>
-        {selectedAgentId && (
-          <Button 
-            variant="outline"
-            onClick={() => setSelectedAgentId(null)}
-            className="border-gray-200 hover:bg-gray-50"
-          >
-            View All Tasks
-          </Button>
-        )}
       </div>
 
-      {/* Search Bar */}
-      <div className="w-full">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search tasks by title, description, or agent..."
-            value={filters.search}
-            onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-            className="pl-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
-          />
-        </div>
-      </div>
-      {/* Search and Filters */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-1 lg:col-start-1">
-          <FiltersPanel 
-            agents={agents}
-            onFiltersChange={setFilters}
-          />
-        </div>
-        <div className="lg:col-span-4">
-          {/* Tasks List */}
-          <TaskList
-            tasks={filteredTasks}
-            onEditTask={(task) => {
-              setSelectedTask(task);
-              setShowEditor(true);
-            }}
-            onViewTask={(task) => {
-              setSelectedTask(task);
-              setShowEditor(true);
-            }}
-            onDeleteTask={handleDeleteTask}
-          />
-        </div>
-      </div>
+      {/* Tasks Card List */}
+      <TaskCardList
+        tasks={tasks}
+        agents={agents}
+        onEditTask={(task) => {
+          setSelectedTask(task);
+          setShowEditor(true);
+        }}
+        onViewTask={(task) => {
+          setSelectedTask(task);
+          setShowEditor(true);
+        }}
+        onDeleteTask={handleDeleteTask}
+      />
     </div>
-  );
-
-  const renderAnalyticsView = () => (
-    <AnalyticsView 
-      agents={agents}
-      tasks={tasks}
-      tokensUsed={tokensUsed}
-      tokensLimit={tokensLimit}
-    />
-  );
-
-  const renderProjectsView = () => (
-    <ProjectsView 
-      agents={agents}
-      tasks={tasks}
-      onCreateProject={() => {
-        toast.info('Project creation coming soon!');
-      }}
-    />
   );
 
   const renderCurrentView = () => {
@@ -784,10 +675,6 @@ export function Dashboard() {
         return renderAgentsView();
       case 'tasks':
         return renderTasksView();
-      case 'analytics':
-        return renderAnalyticsView();
-      case 'projects':
-        return renderProjectsView();
       case 'create-agent':
         setShowCreateAgent(true);
         setCurrentView('agents');

@@ -15,15 +15,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface AddTaskModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (task: { 
-    title: string; 
-    description: string; 
+  onSave: (task: {
+    title: string;
+    description: string;
     attachments?: string[];
     priority?: string;
     deadline?: string;
     taskType?: string;
     wordCount?: number;
     instructions?: string;
+    targetAudience?: string;
+    tone?: string;
+    keywords?: string[];
+    references?: string[];
   }) => void;
   agentName: string;
 }
@@ -55,8 +59,19 @@ const wordCountRanges = [
   { id: '500', label: '500 words', description: 'Medium content' },
   { id: '1000', label: '1,000 words', description: 'Long content' },
   { id: '1500', label: '1,500 words', description: 'Extended content' },
-  { id: '2000', label: '2,000+ words', description: 'Comprehensive content' },
+  { id: '2000', label: '2,000 words', description: 'Comprehensive content' },
   { id: 'custom', label: 'Custom', description: 'Specify exact count' }
+];
+
+const toneOptions = [
+  { id: 'professional', label: 'Professional', icon: '💼', description: 'Formal and business-like' },
+  { id: 'casual', label: 'Casual', icon: '😊', description: 'Friendly and conversational' },
+  { id: 'friendly', label: 'Friendly', icon: '🤝', description: 'Warm and approachable' },
+  { id: 'formal', label: 'Formal', icon: '🎓', description: 'Academic and authoritative' },
+  { id: 'enthusiastic', label: 'Enthusiastic', icon: '🎉', description: 'Energetic and excited' },
+  { id: 'informative', label: 'Informative', icon: '📚', description: 'Educational and clear' },
+  { id: 'persuasive', label: 'Persuasive', icon: '🎯', description: 'Convincing and compelling' },
+  { id: 'humorous', label: 'Humorous', icon: '😄', description: 'Light and entertaining' }
 ];
 
 export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalProps) {
@@ -70,12 +85,14 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
     wordCount: 500,
     instructions: '',
     targetAudience: '',
-    tone: '',
+    tone: 'professional',
     keywords: [] as string[],
     references: [] as string[]
   });
   const [keywordInput, setKeywordInput] = useState('');
   const [referenceInput, setReferenceInput] = useState('');
+  const [showCustomWordCount, setShowCustomWordCount] = useState(false);
+  const [customWordCount, setCustomWordCount] = useState('');
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() && !formData.keywords.includes(keywordInput.trim())) {
@@ -120,9 +137,14 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
       deadline: formData.deadline,
       taskType: formData.taskType,
       wordCount: formData.wordCount,
-      instructions: formData.instructions
+      instructions: formData.instructions,
+      targetAudience: formData.targetAudience,
+      tone: formData.tone,
+      keywords: formData.keywords,
+      references: formData.references
     });
     onClose();
+    // Reset form
     setFormData({
       title: '',
       description: '',
@@ -132,11 +154,15 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
       wordCount: 500,
       instructions: '',
       targetAudience: '',
-      tone: '',
+      tone: 'professional',
       keywords: [],
       references: []
     });
     setCurrentStep(1);
+    setShowCustomWordCount(false);
+    setCustomWordCount('');
+    setKeywordInput('');
+    setReferenceInput('');
   };
 
   const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 3));
@@ -250,22 +276,19 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
             Word Count Target
           </Label>
           <div className="space-y-2">
-            {wordCountRanges.map((range) => (
+            {wordCountRanges.slice(0, -1).map((range) => (
               <Button
                 key={range.id}
                 type="button"
-                variant={formData.wordCount.toString() === range.id ? "default" : "outline"}
+                variant={formData.wordCount.toString() === range.id && !showCustomWordCount ? "default" : "outline"}
                 className={`w-full justify-start h-10 text-left ${
-                  formData.wordCount.toString() === range.id 
-                    ? 'bg-green-600 hover:bg-green-700 text-white' 
+                  formData.wordCount.toString() === range.id && !showCustomWordCount
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
                     : 'border-gray-200 hover:bg-gray-50'
                 }`}
                 onClick={() => {
-                  if (range.id === 'custom') {
-                    // Handle custom input
-                  } else {
-                    setFormData(prev => ({ ...prev, wordCount: parseInt(range.id) }));
-                  }
+                  setShowCustomWordCount(false);
+                  setFormData(prev => ({ ...prev, wordCount: parseInt(range.id) }));
                 }}
               >
                 <div>
@@ -274,7 +297,68 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
                 </div>
               </Button>
             ))}
+            <Button
+              type="button"
+              variant={showCustomWordCount ? "default" : "outline"}
+              className={`w-full justify-start h-10 text-left ${
+                showCustomWordCount
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => setShowCustomWordCount(true)}
+            >
+              <div>
+                <div className="font-medium">Custom</div>
+                <div className="text-xs opacity-75">Specify exact count</div>
+              </div>
+            </Button>
+            {showCustomWordCount && (
+              <Input
+                type="number"
+                min="50"
+                max="10000"
+                value={customWordCount}
+                onChange={(e) => {
+                  setCustomWordCount(e.target.value);
+                  const count = parseInt(e.target.value);
+                  if (!isNaN(count) && count > 0) {
+                    setFormData(prev => ({ ...prev, wordCount: count }));
+                  }
+                }}
+                placeholder="Enter word count (e.g., 750)"
+                className="h-10 border-gray-200 focus:border-green-500 focus:ring-green-500"
+              />
+            )}
           </div>
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-sm font-semibold text-gray-700 mb-3 block">
+          Content Tone
+        </Label>
+        <div className="grid grid-cols-2 gap-2">
+          {toneOptions.map((tone) => (
+            <Card
+              key={tone.id}
+              className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                formData.tone === tone.id
+                  ? 'ring-2 ring-green-500 bg-green-50'
+                  : 'hover:bg-gray-50'
+              }`}
+              onClick={() => setFormData(prev => ({ ...prev, tone: tone.id }))}
+            >
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{tone.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-gray-900 text-sm">{tone.label}</h4>
+                    <p className="text-xs text-gray-600 truncate">{tone.description}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
 

@@ -1,14 +1,39 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { markdownToHtml } from './markdown';
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
 
-export const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+export const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-export async function generateContent(prompt: string): Promise<string> {
+// Track token usage globally
+let totalTokensUsed = 0;
+
+export function getTotalTokensUsed(): number {
+  return totalTokensUsed;
+}
+
+export function resetTokenUsage(): void {
+  totalTokensUsed = 0;
+}
+
+export async function generateContent(prompt: string, convertToHtml: boolean = false): Promise<string> {
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    return response.text();
+    const text = response.text();
+
+    // Track token usage
+    const usageMetadata = response.usageMetadata;
+    if (usageMetadata) {
+      totalTokensUsed += usageMetadata.totalTokenCount || 0;
+    }
+
+    // Convert markdown to HTML if requested
+    if (convertToHtml) {
+      return markdownToHtml(text);
+    }
+
+    return text;
   } catch (error) {
     console.error('Error generating content:', error);
     throw new Error('Failed to generate content');
@@ -47,15 +72,15 @@ Instructions:
 - Write in ${tone} tone with ${style} style
 - Make the content comprehensive and well-organized
 
-Write the content now:`;
+CRITICAL: Return ONLY the requested content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the content.`;
 
-  return await generateContent(fullPrompt);
+  return await generateContent(fullPrompt, true); // Convert to HTML
 }
 
 export async function improveContent(content: string, instruction: string, style: string, tone: string): Promise<string> {
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
 
-Current Content: 
+Current Content:
 ${content}
 
 Improvement Request: ${instruction}
@@ -75,20 +100,36 @@ Instructions:
 - Include relevant headings and subheadings
 - Use lists and formatting to improve readability
 
-Provide the improved version:`;
+CRITICAL: Return ONLY the improved content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the improved content.`;
 
-  return await generateContent(fullPrompt);
+  return await generateContent(fullPrompt, true); // Convert to HTML
 }
 
-export async function generateInitialContent(title: string, description: string, style: string, tone: string, keywords: string[] = []): Promise<string> {
+export async function generateInitialContent(
+  title: string,
+  description: string,
+  style: string,
+  tone: string,
+  keywords: string[] = [],
+  wordCount?: number,
+  targetAudience?: string,
+  instructions?: string,
+  references?: string[]
+): Promise<string> {
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
-        
+
 Task: ${title}
 Description: ${description}
-Keywords to focus on: ${keywords.join(', ')}
+${targetAudience ? `Target Audience: ${targetAudience}` : ''}
+${wordCount ? `Target Word Count: ${wordCount} words` : ''}
+${keywords.length > 0 ? `Keywords to focus on: ${keywords.join(', ')}` : ''}
+${references && references.length > 0 ? `Reference materials: ${references.join(', ')}` : ''}
+${instructions ? `\nSpecial Instructions: ${instructions}` : ''}
 
 Instructions:
 - Write complete, well-structured content that fulfills the task requirement
+${wordCount ? `- Aim for approximately ${wordCount} words` : ''}
+${targetAudience ? `- Tailor the content for ${targetAudience}` : ''}
 - Use proper markdown formatting:
   * Use # for main headings, ## for subheadings, ### for sub-subheadings
   * Use **text** for bold emphasis
@@ -102,9 +143,9 @@ Instructions:
 - Write in ${tone} tone with ${style} style
 - Make the content comprehensive and well-organized
 
-Write the content now:`;
+CRITICAL: Return ONLY the requested content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the content.`;
 
-  return await generateContent(fullPrompt);
+  return await generateContent(fullPrompt, true); // Convert to HTML
 }
 
 export async function generateContentSuggestions(content: string): Promise<Array<{
@@ -161,4 +202,90 @@ Provide only the JSON array, no other text.`;
     console.error('Error generating content suggestions:', error);
     return [];
   }
+}
+
+export async function formatContent(content: string): Promise<string> {
+  // Strip HTML tags to get plain text
+  const plainText = content.replace(/<[^>]*>/g, '').trim();
+
+  if (!plainText) {
+    throw new Error('No content to format');
+  }
+
+  const prompt = `You are a professional content formatter. Take the following unformatted or poorly formatted text and restructure it with proper formatting.
+
+Content to format:
+"""
+${plainText}
+"""
+
+Instructions:
+1. Analyze the content and identify its structure
+2. Add appropriate headings using # for main topics, ## for subtopics, ### for sub-subtopics
+3. Convert lists into proper markdown format:
+   - Use - or * for bullet points
+   - Use 1. 2. 3. for numbered lists
+4. Break text into well-structured paragraphs with proper spacing
+5. Use **bold** for important terms or emphasis
+6. Use *italics* for subtle emphasis
+7. Add > for important quotes or callouts if applicable
+8. Ensure proper spacing between sections
+9. Make the content visually scannable and easy to read
+10. Maintain the original meaning and content - only improve the formatting
+
+CRITICAL: Return ONLY the formatted content in markdown. DO NOT add "Here is the formatted content", "Certainly", or ANY introduction/explanation. Start immediately with the formatted content.`;
+
+  return await generateContent(prompt, true); // Convert to HTML
+}
+
+export async function applySuggestionToContent(content: string, suggestionTitle: string, suggestionDescription: string): Promise<string> {
+  // Strip HTML tags to get plain text
+  const plainText = content.replace(/<[^>]*>/g, '').trim();
+
+  if (!plainText) {
+    throw new Error('No content to improve');
+  }
+
+  const prompt = `You are a professional content editor. Apply this specific improvement to the content WITHOUT rewriting everything.
+
+Current Content:
+"""
+${plainText}
+"""
+
+Improvement to Apply:
+${suggestionTitle}: ${suggestionDescription}
+
+Instructions:
+1. Apply ONLY the specific improvement mentioned above
+2. Keep the rest of the content EXACTLY the same
+3. Maintain all existing headings, paragraphs, lists, and structure
+4. Only make the minimal changes needed to apply this one improvement
+5. Use markdown formatting (# for headings, - for bullets, **bold**, etc.)
+6. Do not rewrite the entire content - just apply this one specific enhancement
+
+CRITICAL: Return ONLY the improved content. DO NOT add "Here is...", "I've applied...", "Certainly", or ANY introduction/explanation. Return the content directly.`;
+
+  return await generateContent(prompt, true); // Convert to HTML
+}
+
+export async function generateSocialMediaStory(topic: string, platform: string, style: string, tone: string): Promise<string> {
+  const prompt = `You are a creative social media content writer. Create an engaging ${platform} story/post.
+
+Topic: ${topic}
+Platform: ${platform}
+Style: ${style}
+Tone: ${tone}
+
+Instructions:
+- Create a ${platform}-optimized story/post
+- Use appropriate hashtags and emojis
+- Keep it engaging and shareable
+- Use markdown formatting for structure
+- Include a strong hook to grab attention
+- Add a clear call-to-action if appropriate
+
+CRITICAL: Return ONLY the ${platform} post/story content. DO NOT add "Here is...", "Certainly...", or ANY introduction. Start directly with the post content.`;
+
+  return await generateContent(prompt, true);
 }

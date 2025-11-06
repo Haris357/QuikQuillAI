@@ -1,18 +1,10 @@
 "use client";
 
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  ArrowLeft, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
+import {
+  ArrowLeft,
   Sparkles,
   AlertCircle,
   CheckCircle
@@ -27,16 +19,6 @@ interface SignInPageProps {
 }
 
 export function SignInPage({ onBack, onSignIn, loading = false, error }: SignInPageProps) {
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSignIn();
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-green-50 flex items-center justify-center p-4">
@@ -66,13 +48,10 @@ export function SignInPage({ onBack, onSignIn, loading = false, error }: SignInP
               </div>
             </div>
             <CardTitle className="text-2xl font-bold text-gray-900">
-              {isSignUp ? 'Create Account' : 'Welcome Back'}
+              Welcome to QuikQuill
             </CardTitle>
             <p className="text-gray-600 mt-2">
-              {isSignUp 
-                ? 'Start your journey with AI-powered writing' 
-                : 'Sign in to your QuikQuill account'
-              }
+              Sign in to access your AI-powered writing platform
             </p>
           </CardHeader>
 
@@ -102,133 +81,13 @@ export function SignInPage({ onBack, onSignIn, loading = false, error }: SignInP
               {loading ? 'Signing in...' : 'Continue with Google'}
             </Button>
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <Separator className="w-full" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-gray-500">Or continue with email</span>
-              </div>
-            </div>
-
-            {/* Email/Password Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                  Email Address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    className="pl-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    className="pl-10 pr-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
-                    required
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              {isSignUp && (
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
-                    Confirm Password
-                  </Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="confirmPassword"
-                      type={showPassword ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm your password"
-                      className="pl-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {!isSignUp && (
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center">
-                    <input type="checkbox" className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
-                    <span className="ml-2 text-sm text-gray-600">Remember me</span>
-                  </label>
-                  <Button variant="link" className="text-green-600 hover:text-green-700 p-0">
-                    Forgot password?
-                  </Button>
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-base font-medium"
-              >
-                {loading ? (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    {isSignUp ? 'Creating Account...' : 'Signing In...'}
-                  </div>
-                ) : (
-                  isSignUp ? 'Create Account' : 'Sign In'
-                )}
-              </Button>
-            </form>
-
-            {/* Toggle Sign Up/Sign In */}
-            <div className="text-center">
-              <span className="text-gray-600">
-                {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-              </span>
-              <Button
-                variant="link"
-                onClick={() => setIsSignUp(!isSignUp)}
-                className="text-green-600 hover:text-green-700 p-1 ml-1"
-              >
-                {isSignUp ? 'Sign In' : 'Sign Up'}
-              </Button>
-            </div>
-
             {/* Terms and Privacy */}
-            {isSignUp && (
-              <p className="text-xs text-gray-500 text-center leading-relaxed">
-                By creating an account, you agree to our{' '}
-                <a href="#" className="text-green-600 hover:underline">Terms of Service</a>
-                {' '}and{' '}
-                <a href="#" className="text-green-600 hover:underline">Privacy Policy</a>
-              </p>
-            )}
+            <p className="text-xs text-gray-500 text-center leading-relaxed">
+              By signing in, you agree to our{' '}
+              <a href="#" className="text-green-600 hover:underline">Terms of Service</a>
+              {' '}and{' '}
+              <a href="#" className="text-green-600 hover:underline">Privacy Policy</a>
+            </p>
           </CardContent>
         </Card>
 
