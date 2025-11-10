@@ -25,12 +25,12 @@ export default function AgentsPage() {
     }
   }, [searchParams, router]);
 
-  const handleSave = async (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => {
+  const handleSave = async (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => {
     if (editingAgent) {
-      await handleUpdateAgent(editingAgent.id, agentData);
+      await handleUpdateAgent(editingAgent.id, agentData, scriptFiles);
       setEditingAgent(null);
     } else {
-      await handleCreateAgent(agentData);
+      await handleCreateAgent(agentData, scriptFiles);
     }
     setShowCreateAgent(false);
   };

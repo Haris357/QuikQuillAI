@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,13 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Agent } from '@/types';
-import { X, Upload, FileText, Image, Video, Plus, Sparkles, User, Briefcase, Palette, MessageSquare, Hash, FileUp } from 'lucide-react';
+import { X, Upload, FileText, Image, Video, Plus, Sparkles, User, Briefcase, Palette, MessageSquare, Hash, FileUp, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ScriptUpload } from './ScriptUpload';
+import { useAuth } from '@/hooks/useAuth';
+import supabaseService from '@/lib/supabase-service';
+import toast from 'react-hot-toast';
 
 interface CreateAgentModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (agent: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => void;
+  onSave: (agent: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => void;
   editingAgent?: Agent | null;
 }
 
@@ -63,6 +67,7 @@ const jobRoles = [
 ];
 
 export function CreateAgentModal({ open, onClose, onSave, editingAgent }: CreateAgentModalProps) {
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     name: editingAgent?.name || '',
@@ -77,6 +82,18 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
   });
   const [keywordInput, setKeywordInput] = useState('');
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>(editingAgent?.keywords || []);
+  const [scriptFiles, setScriptFiles] = useState<File[]>([]);
+  const [existingScripts, setExistingScripts] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Load existing scripts when editing an agent
+  useEffect(() => {
+    if (editingAgent && editingAgent.id && user) {
+      supabaseService.script.getScriptsByAgent(editingAgent.id).then(scripts => {
+        setExistingScripts(scripts);
+      });
+    }
+  }, [editingAgent, user]);
 
   const handleAddKeyword = (keyword?: string) => {
     const keywordToAdd = keyword || keywordInput.trim();
@@ -94,34 +111,51 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
     setFormData(prev => ({ ...prev, keywords: newKeywords }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      name: formData.name,
-      role: formData.role,
-      writingStyle: formData.writingStyle,
-      tone: formData.tone,
-      keywords: selectedKeywords,
-      description: formData.description,
-      expertise: formData.expertise,
-      targetAudience: formData.targetAudience,
-      contentTypes: formData.contentTypes,
-      referenceFiles: editingAgent?.referenceFiles || [],
-    });
-    onClose();
-    setFormData({
-      name: '',
-      role: '',
-      writingStyle: '',
-      tone: '',
-      keywords: [],
-      description: '',
-      expertise: '',
-      targetAudience: '',
-      contentTypes: []
-    });
-    setSelectedKeywords([]);
-    setCurrentStep(1);
+    setIsUploading(true);
+
+    try {
+      // Save the agent data
+      const agentData = {
+        name: formData.name,
+        role: formData.role,
+        writingStyle: formData.writingStyle,
+        tone: formData.tone,
+        keywords: selectedKeywords,
+        description: formData.description,
+        expertise: formData.expertise,
+        targetAudience: formData.targetAudience,
+        contentTypes: formData.contentTypes,
+        referenceFiles: editingAgent?.referenceFiles || [],
+      };
+
+      // Call onSave with scriptFiles - DataContext will handle the upload
+      await onSave(agentData, scriptFiles.length > 0 ? scriptFiles : undefined);
+
+      // Close modal and reset
+      onClose();
+      setFormData({
+        name: '',
+        role: '',
+        writingStyle: '',
+        tone: '',
+        keywords: [],
+        description: '',
+        expertise: '',
+        targetAudience: '',
+        contentTypes: []
+      });
+      setSelectedKeywords([]);
+      setScriptFiles([]);
+      setExistingScripts([]);
+      setCurrentStep(1);
+    } catch (error) {
+      console.error('Error saving agent:', error);
+      toast.error('Failed to save agent');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 3));
@@ -334,25 +368,22 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
       
       <div>
         <Label className="text-sm font-semibold text-gray-700 mb-2 block">
-          Reference Files (Optional)
+          Training Scripts (Optional)
         </Label>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <FileText className="h-6 w-6 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Documents</p>
-            <p className="text-xs text-gray-500">PDF, DOC, TXT</p>
-          </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <Image className="h-6 w-6 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Images</p>
-            <p className="text-xs text-gray-500">JPG, PNG, GIF</p>
-          </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <Video className="h-6 w-6 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Videos</p>
-            <p className="text-xs text-gray-500">MP4, MOV, AVI</p>
-          </div>
-        </div>
+        <ScriptUpload
+          onFilesChange={setScriptFiles}
+          existingScripts={existingScripts}
+          onDeleteExisting={async (scriptId) => {
+            try {
+              await supabaseService.script.deleteScript(scriptId);
+              setExistingScripts(prev => prev.filter(s => s.id !== scriptId));
+              toast.success('Script deleted successfully!');
+            } catch (error) {
+              console.error('Error deleting script:', error);
+              toast.error('Failed to delete script');
+            }
+          }}
+        />
       </div>
     </div>
   );
@@ -445,13 +476,22 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
                   <Sparkles className="ml-2 h-4 w-4" />
                 </Button>
               ) : (
-                <Button 
-                  type="submit" 
-                  disabled={!formData.name || !formData.role || !formData.writingStyle || !formData.tone}
+                <Button
+                  type="submit"
+                  disabled={!formData.name || !formData.role || !formData.writingStyle || !formData.tone || isUploading}
                   className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white"
                 >
-                  {editingAgent ? 'Update Agent' : 'Create Agent'}
-                  <Sparkles className="ml-2 h-4 w-4" />
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {scriptFiles.length > 0 ? 'Uploading scripts...' : 'Saving...'}
+                    </>
+                  ) : (
+                    <>
+                      {editingAgent ? 'Update Agent' : 'Create Agent'}
+                      <Sparkles className="ml-2 h-4 w-4" />
+                    </>
+                  )}
                 </Button>
               )}
             </div>
