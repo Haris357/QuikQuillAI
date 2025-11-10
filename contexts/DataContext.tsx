@@ -2,11 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { ref, onValue, push, set, remove } from 'firebase/database';
-import { database } from '@/lib/firebase';
 import { Agent, Task } from '@/types';
 import toast from 'react-hot-toast';
 import { canCreateAgent, canCreateTask } from '@/lib/subscription';
+import supabaseService from '@/lib/supabase-service';
 
 interface DataContextType {
   agents: Agent[];
@@ -29,50 +28,112 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !database) {
+    if (!user) {
       setLoading(false);
       return;
     }
 
-    // Listen to agents
-    const agentsRef = ref(database, `agents/${user.uid}`);
-    const unsubscribeAgents = onValue(agentsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const agentsList = Object.entries(data).map(([id, agent]: [string, any]) => ({
-          id,
-          ...agent,
-        }));
-        setAgents(agentsList);
-      } else {
-        setAgents([]);
+    // Ensure user exists in Supabase
+    const initializeUser = async () => {
+      try {
+        await supabaseService.user.upsertUser({
+          id: user.uid,
+          email: user.email || '',
+          name: user.displayName || null,
+          photo_url: user.photoURL || null,
+        });
+      } catch (error) {
+        console.error('Error initializing user:', error);
       }
-      setLoading(false);
+    };
+
+    initializeUser();
+
+    // Load initial data
+    const loadData = async () => {
+      try {
+        const [agentsData, tasksData] = await Promise.all([
+          supabaseService.agent.getAgents(user.uid),
+          supabaseService.task.getTasks(user.uid),
+        ]);
+
+        // Convert Supabase data to match existing Agent/Task types
+        const convertedAgents = agentsData.map((agent: any) => ({
+          id: agent.id,
+          name: agent.name,
+          role: agent.role,
+          description: agent.description,
+          writingStyle: agent.writing_style,
+          tone: agent.tone,
+          keywords: agent.keywords || [],
+          expertise: agent.expertise,
+          targetAudience: agent.target_audience,
+          contentTypes: agent.content_types || [],
+          createdAt: agent.created_at,
+          userId: agent.user_id,
+        }));
+
+        const convertedTasks = tasksData.map((task: any) => ({
+          id: task.id,
+          agentId: task.agent_id,
+          title: task.title,
+          description: task.description,
+          content: task.content || '',
+          status: mapSupabaseStatus(task.status),
+          priority: task.priority,
+          deadline: task.due_date,
+          wordCount: task.word_count,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+          // Additional fields from old schema
+          attachments: [],
+          revisions: [],
+          taskType: 'article',
+          instructions: task.description,
+          targetAudience: '',
+          tone: '',
+          keywords: [],
+          references: '',
+        }));
+
+        setAgents(convertedAgents);
+        setTasks(convertedTasks);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setLoading(false);
+      }
+    };
+
+    loadData();
+
+    // Subscribe to real-time changes
+    const agentChannel = supabaseService.subscription.subscribeToAgents(user.uid, (payload) => {
+      console.log('Agent change:', payload);
+      loadData(); // Reload data on any change
     });
 
-    // Listen to tasks
-    const tasksRef = ref(database, `tasks/${user.uid}`);
-    const unsubscribeTasks = onValue(tasksRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const tasksList = Object.entries(data).map(([id, task]: [string, any]) => ({
-          id,
-          ...task,
-        }));
-        setTasks(tasksList);
-      } else {
-        setTasks([]);
-      }
+    const taskChannel = supabaseService.subscription.subscribeToTasks(user.uid, (payload) => {
+      console.log('Task change:', payload);
+      loadData(); // Reload data on any change
     });
 
     return () => {
-      unsubscribeAgents();
-      unsubscribeTasks();
+      agentChannel.unsubscribe();
+      taskChannel.unsubscribe();
     };
   }, [user]);
 
+  // Helper to map Supabase status to old schema
+  const mapSupabaseStatus = (status: string): 'pending' | 'in-progress' | 'completed' => {
+    if (status === 'pending') return 'pending';
+    if (status === 'in_progress') return 'in-progress';
+    if (status === 'completed') return 'completed';
+    return 'pending';
+  };
+
   const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => {
-    if (!user || !database) {
+    if (!user) {
       const newAgent: Agent = {
         id: Date.now().toString(),
         ...agentData,
@@ -92,19 +153,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const agentsRef = ref(database, `agents/${user.uid}`);
-      const newAgentRef = push(agentsRef);
+      const newAgent = await supabaseService.agent.createAgent({
+        user_id: user.uid,
+        name: agentData.name,
+        role: agentData.role,
+        description: agentData.description || null,
+        writing_style: agentData.writingStyle,
+        tone: agentData.tone,
+        keywords: agentData.keywords || [],
+        expertise: agentData.expertise || null,
+        target_audience: agentData.targetAudience || null,
+        content_types: agentData.contentTypes || [],
+      });
 
-      const newAgent: Omit<Agent, 'id'> = {
-        ...agentData,
-        createdAt: new Date().toISOString(),
-        userId: user.uid,
-      };
-
-      // Sanitize data before saving
-      const sanitizedAgent = sanitizeData(newAgent);
-      await set(newAgentRef, sanitizedAgent);
-      toast.success('AI Agent created successfully!');
+      if (newAgent) {
+        toast.success('AI Agent created successfully!');
+      }
     } catch (error) {
       console.error('Error creating agent:', error);
       toast.error('Failed to create agent');
@@ -112,22 +176,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const handleUpdateAgent = async (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => {
-    if (!user || !database) return;
+    if (!user) return;
 
     const agent = agents.find(a => a.id === agentId);
     if (!agent) return;
 
     try {
-      const agentRef = ref(database, `agents/${user.uid}/${agentId}`);
-      const updatedAgent = {
-        ...agentData,
-        createdAt: agent.createdAt,
-        userId: user.uid,
-      };
+      await supabaseService.agent.updateAgent(agentId, {
+        name: agentData.name,
+        role: agentData.role,
+        description: agentData.description || null,
+        writing_style: agentData.writingStyle,
+        tone: agentData.tone,
+        keywords: agentData.keywords || [],
+        expertise: agentData.expertise || null,
+        target_audience: agentData.targetAudience || null,
+        content_types: agentData.contentTypes || [],
+      });
 
-      // Sanitize data before saving
-      const sanitizedAgent = sanitizeData(updatedAgent);
-      await set(agentRef, sanitizedAgent);
       toast.success('Agent updated successfully!');
     } catch (error) {
       console.error('Error updating agent:', error);
@@ -136,18 +202,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const handleDeleteAgent = async (agentId: string) => {
-    if (!user || !database) return;
+    if (!user) return;
 
     try {
-      const agentRef = ref(database, `agents/${user.uid}/${agentId}`);
-      await remove(agentRef);
-
-      const agentTasks = tasks.filter(t => t.agentId === agentId);
-      for (const task of agentTasks) {
-        const taskRef = ref(database, `tasks/${user.uid}/${task.id}`);
-        await remove(taskRef);
-      }
-
+      await supabaseService.agent.deleteAgent(agentId);
       toast.success('Agent deleted successfully!');
     } catch (error) {
       console.error('Error deleting agent:', error);
@@ -156,7 +214,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const handleCreateTask = async (selectedAgentId: string, taskData: any) => {
-    if (!user || !database) {
+    if (!user) {
       if (!selectedAgentId) return;
 
       const selectedAgent = agents.find(a => a.id === selectedAgentId);
@@ -225,36 +283,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const tasksRef = ref(database, `tasks/${user.uid}`);
-      const newTaskRef = push(tasksRef);
-
-      const newTask: Omit<Task, 'id'> = {
-        agentId: selectedAgentId,
+      // Create task in Supabase
+      const newTask = await supabaseService.task.createTask({
+        user_id: user.uid,
+        agent_id: selectedAgentId,
         title: taskData.title,
         description: taskData.description,
         content: '',
-        status: 'in-progress',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        attachments: taskData.attachments || [],
-        revisions: [],
-        priority: taskData.priority,
-        deadline: taskData.deadline,
-        taskType: taskData.taskType,
-        wordCount: taskData.wordCount,
-        instructions: taskData.instructions,
-        targetAudience: taskData.targetAudience,
-        tone: taskData.tone,
-        keywords: taskData.keywords,
-        references: taskData.references,
-      };
+        status: 'in_progress',
+        priority: taskData.priority || 'medium',
+        word_count: taskData.wordCount || 0,
+        due_date: taskData.deadline || null,
+      });
 
-      // Sanitize data before saving
-      const sanitizedNewTask = sanitizeData(newTask);
-      await set(newTaskRef, sanitizedNewTask);
+      if (!newTask) {
+        toast.error('Failed to create task');
+        return;
+      }
+
       toast.success('Task created! AI is generating content...');
 
       try {
+        // Get script context from agent's uploaded scripts
+        const scriptContents = await supabaseService.script.getScriptContentsForAgent(selectedAgentId);
+
         const { generateInitialContent } = await import('@/lib/gemini');
         const generatedContent = await generateInitialContent(
           taskData.title,
@@ -263,20 +315,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
           taskData.tone || selectedAgent.tone,
           taskData.keywords && taskData.keywords.length > 0 ? taskData.keywords : selectedAgent.keywords || [],
           taskData.wordCount,
-          taskData.references
+          taskData.references,
+          scriptContents // Pass script context to AI
         );
 
-        const taskRef = ref(database, `tasks/${user.uid}/${newTaskRef.key}`);
-        const updatedTaskData = {
-          ...newTask,
+        // Update task with generated content
+        await supabaseService.task.updateTask(newTask.id, {
           content: generatedContent,
           status: 'completed',
-          updatedAt: new Date().toISOString(),
-        };
-
-        // Sanitize data before saving
-        const sanitizedUpdateData = sanitizeData(updatedTaskData);
-        await set(taskRef, sanitizedUpdateData);
+          completed_at: new Date().toISOString(),
+        });
 
         toast.success('Content generated successfully!');
       } catch (error) {
@@ -289,46 +337,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Helper function to remove undefined values from objects
-  const sanitizeData = (obj: any): any => {
-    if (Array.isArray(obj)) {
-      return obj
-        .filter(item => item !== undefined && item !== null)
-        .map(item => sanitizeData(item));
-    }
-
-    if (obj !== null && typeof obj === 'object') {
-      const sanitized: any = {};
-      Object.keys(obj).forEach(key => {
-        const value = obj[key];
-        if (value !== undefined && value !== null) {
-          sanitized[key] = sanitizeData(value);
-        }
-      });
-      return sanitized;
-    }
-
-    return obj;
-  };
-
   const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
-    if (!user || !database) return;
+    if (!user) return;
 
     try {
-      const taskRef = ref(database, `tasks/${user.uid}/${taskId}`);
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
 
-      const updatedTask = {
-        ...task,
-        ...updates,
-        updatedAt: new Date().toISOString(),
-      };
+      // Map old schema to new schema
+      const supabaseUpdates: any = {};
+      if (updates.title) supabaseUpdates.title = updates.title;
+      if (updates.description) supabaseUpdates.description = updates.description;
+      if (updates.content) supabaseUpdates.content = updates.content;
+      if (updates.status) {
+        // Map status to Supabase format
+        if (updates.status === 'in-progress') supabaseUpdates.status = 'in_progress';
+        else supabaseUpdates.status = updates.status;
+      }
+      if (updates.priority) supabaseUpdates.priority = updates.priority;
+      if (updates.deadline) supabaseUpdates.due_date = updates.deadline;
+      if (updates.wordCount) supabaseUpdates.word_count = updates.wordCount;
 
-      // Sanitize the data to remove undefined values
-      const sanitizedTask = sanitizeData(updatedTask);
-
-      await set(taskRef, sanitizedTask);
+      await supabaseService.task.updateTask(taskId, supabaseUpdates);
       toast.success('Task updated successfully!');
     } catch (error) {
       console.error('Error updating task:', error);
@@ -337,11 +367,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!user || !database) return;
+    if (!user) return;
 
     try {
-      const taskRef = ref(database, `tasks/${user.uid}/${taskId}`);
-      await remove(taskRef);
+      await supabaseService.task.deleteTask(taskId);
       toast.success('Task deleted successfully!');
     } catch (error) {
       console.error('Error deleting task:', error);

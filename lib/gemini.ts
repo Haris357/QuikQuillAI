@@ -136,8 +136,28 @@ export async function generateInitialContent(
   targetAudience?: string,
   instructions?: string,
   references?: string[],
+  scriptContents?: string[],
   userId?: string
 ): Promise<string> {
+  // Build script context section if scripts are provided
+  let scriptContext = '';
+  if (scriptContents && scriptContents.length > 0) {
+    scriptContext = `\n\nREFERENCE SCRIPTS (for training/context - learn the style, tone, and approach from these):
+========================================
+${scriptContents.map((script, index) => `
+--- Script ${index + 1} ---
+${script}
+`).join('\n\n')}
+========================================
+
+IMPORTANT: Use the above reference scripts to:
+- Learn and match the writing style
+- Understand the preferred tone and approach
+- Follow similar content structure and patterns
+- Maintain consistency with the reference examples
+`;
+  }
+
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
 
 Task: ${title}
@@ -147,15 +167,17 @@ ${wordCount ? `Target Word Count: ${wordCount} words` : ''}
 ${keywords.length > 0 ? `Keywords to focus on: ${keywords.join(', ')}` : ''}
 ${references && references.length > 0 ? `Reference materials: ${references.join(', ')}` : ''}
 ${instructions ? `\nSpecial Instructions: ${instructions}` : ''}
+${scriptContext}
 
 Instructions:
 - Write complete, well-structured content that fulfills the task requirement
 ${wordCount ? `- Aim for approximately ${wordCount} words` : ''}
 ${targetAudience ? `- Tailor the content for ${targetAudience}` : ''}
+${scriptContents && scriptContents.length > 0 ? `- CLOSELY FOLLOW the style, tone, and patterns from the reference scripts provided above` : ''}
 - Use proper markdown formatting:
   * Use # for main headings, ## for subheadings, ### for sub-subheadings
   * Use **text** for bold emphasis
-  * Use *text* for italic emphasis
+  * Use *text** for italic emphasis
   * Use - or * for bullet points
   * Use 1. 2. 3. for numbered lists
   * Use > for blockquotes
