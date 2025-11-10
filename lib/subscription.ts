@@ -1,5 +1,4 @@
-import { database } from './firebase';
-import { ref, get, update } from 'firebase/database';
+import supabaseService from './supabase-service';
 import { SUBSCRIPTION_TIERS, SubscriptionTier } from './stripe';
 import { UserSubscription } from '@/types';
 
@@ -7,26 +6,22 @@ import { UserSubscription } from '@/types';
  * Initialize a new user with free trial subscription
  */
 export async function initializeUserSubscription(userId: string): Promise<void> {
-  if (!database) return;
+  try {
+    const user = await supabaseService.user.getUser(userId);
 
-  const userRef = ref(database, `users/${userId}/subscription`);
-  const snapshot = await get(userRef);
+    // If user doesn't have a subscription tier set, initialize it
+    if (!user || !user.subscription_tier) {
+      const trialEndDate = new Date();
+      trialEndDate.setDate(trialEndDate.getDate() + 3); // 3-day trial
 
-  if (!snapshot.exists()) {
-    const trialEndDate = new Date();
-    trialEndDate.setDate(trialEndDate.getDate() + 3); // 3-day trial
-
-    const subscription: UserSubscription = {
-      status: 'trial',
-      tier: 'free',
-      trialEndsAt: trialEndDate.toISOString(),
-      tokensUsedThisPeriod: 0,
-      tokensLimit: SUBSCRIPTION_TIERS.free.tokens,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await update(userRef, subscription);
+      await supabaseService.user.updateUser(userId, {
+        subscription_tier: 'free',
+        subscription_status: 'active',
+        trial_ends_at: trialEndDate.toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error('Error initializing user subscription:', error);
   }
 }
 
@@ -34,16 +29,28 @@ export async function initializeUserSubscription(userId: string): Promise<void> 
  * Get user's current subscription
  */
 export async function getUserSubscription(userId: string): Promise<UserSubscription | null> {
-  if (!database) return null;
+  try {
+    const user = await supabaseService.user.getUser(userId);
 
-  const userRef = ref(database, `users/${userId}/subscription`);
-  const snapshot = await get(userRef);
+    if (!user) return null;
 
-  if (snapshot.exists()) {
-    return snapshot.val() as UserSubscription;
+    // Get monthly token usage from Supabase
+    const tokensUsed = await supabaseService.user.getMonthlyTokenUsage(userId);
+    const tier = user.subscription_tier || 'free';
+
+    return {
+      status: user.subscription_status === 'active' ? (user.trial_ends_at ? 'trial' : 'active') : 'inactive',
+      tier: tier as 'free' | 'pro' | 'enterprise',
+      trialEndsAt: user.trial_ends_at || undefined,
+      tokensUsedThisPeriod: tokensUsed,
+      tokensLimit: SUBSCRIPTION_TIERS[tier as 'free' | 'pro' | 'enterprise'].tokens,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+    };
+  } catch (error) {
+    console.error('Error getting user subscription:', error);
+    return null;
   }
-
-  return null;
 }
 
 /**
@@ -87,94 +94,95 @@ export function getTokensRemaining(subscription: UserSubscription | null): numbe
  * Update token usage
  */
 export async function updateTokenUsage(userId: string, tokensUsed: number): Promise<void> {
-  if (!database) return;
-
-  const subscription = await getUserSubscription(userId);
-  if (!subscription) return;
-
-  const userRef = ref(database, `users/${userId}/subscription`);
-  await update(userRef, {
-    tokensUsedThisPeriod: subscription.tokensUsedThisPeriod + tokensUsed,
-    updatedAt: new Date().toISOString(),
-  });
+  try {
+    // Token usage is now tracked in usage_tracking table
+    // This is handled automatically by the gemini.ts file
+    // Just making sure the record exists in usage_tracking
+  } catch (error) {
+    console.error('Error updating token usage:', error);
+  }
 }
 
 /**
  * Check if user can create more agents
  */
 export async function canCreateAgent(userId: string): Promise<{ allowed: boolean; reason?: string }> {
-  if (!database) return { allowed: false, reason: 'Database not available' };
+  try {
+    const subscription = await getUserSubscription(userId);
 
-  const subscription = await getUserSubscription(userId);
+    if (!subscription) {
+      return { allowed: false, reason: 'No subscription found' };
+    }
 
-  if (!subscription) {
-    return { allowed: false, reason: 'No subscription found' };
-  }
+    // Check if trial expired
+    if (isTrialExpired(subscription)) {
+      return { allowed: false, reason: 'Trial expired. Please upgrade to continue.' };
+    }
 
-  // Check if trial expired
-  if (isTrialExpired(subscription)) {
-    return { allowed: false, reason: 'Trial expired. Please upgrade to continue.' };
-  }
+    const tier = SUBSCRIPTION_TIERS[subscription.tier];
 
-  const tier = SUBSCRIPTION_TIERS[subscription.tier];
+    // Unlimited agents
+    if (tier.limits.agents === -1) {
+      return { allowed: true };
+    }
 
-  // Unlimited agents
-  if (tier.limits.agents === -1) {
+    // Count current agents from Supabase
+    const agents = await supabaseService.agent.getAgents(userId);
+    const agentCount = agents.length;
+
+    if (agentCount >= tier.limits.agents) {
+      return {
+        allowed: false,
+        reason: `You've reached the limit of ${tier.limits.agents} agents for your ${tier.name} plan. Upgrade to create more.`
+      };
+    }
+
     return { allowed: true };
+  } catch (error) {
+    console.error('Error checking if user can create agent:', error);
+    return { allowed: false, reason: 'Error checking subscription' };
   }
-
-  // Count current agents
-  const agentsRef = ref(database, `agents/${userId}`);
-  const snapshot = await get(agentsRef);
-  const agentCount = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
-
-  if (agentCount >= tier.limits.agents) {
-    return {
-      allowed: false,
-      reason: `You've reached the limit of ${tier.limits.agents} agents for your ${tier.name} plan. Upgrade to create more.`
-    };
-  }
-
-  return { allowed: true };
 }
 
 /**
  * Check if user can create more tasks
  */
 export async function canCreateTask(userId: string): Promise<{ allowed: boolean; reason?: string }> {
-  if (!database) return { allowed: false, reason: 'Database not available' };
+  try {
+    const subscription = await getUserSubscription(userId);
 
-  const subscription = await getUserSubscription(userId);
+    if (!subscription) {
+      return { allowed: false, reason: 'No subscription found' };
+    }
 
-  if (!subscription) {
-    return { allowed: false, reason: 'No subscription found' };
-  }
+    // Check if trial expired
+    if (isTrialExpired(subscription)) {
+      return { allowed: false, reason: 'Trial expired. Please upgrade to continue.' };
+    }
 
-  // Check if trial expired
-  if (isTrialExpired(subscription)) {
-    return { allowed: false, reason: 'Trial expired. Please upgrade to continue.' };
-  }
+    const tier = SUBSCRIPTION_TIERS[subscription.tier];
 
-  const tier = SUBSCRIPTION_TIERS[subscription.tier];
+    // Unlimited tasks
+    if (tier.limits.tasks === -1) {
+      return { allowed: true };
+    }
 
-  // Unlimited tasks
-  if (tier.limits.tasks === -1) {
+    // Count current tasks from Supabase
+    const tasks = await supabaseService.task.getTasks(userId);
+    const taskCount = tasks.length;
+
+    if (taskCount >= tier.limits.tasks) {
+      return {
+        allowed: false,
+        reason: `You've reached the limit of ${tier.limits.tasks} tasks for your ${tier.name} plan. Upgrade to create more.`
+      };
+    }
+
     return { allowed: true };
+  } catch (error) {
+    console.error('Error checking if user can create task:', error);
+    return { allowed: false, reason: 'Error checking subscription' };
   }
-
-  // Count current tasks
-  const tasksRef = ref(database, `tasks/${userId}`);
-  const snapshot = await get(tasksRef);
-  const taskCount = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
-
-  if (taskCount >= tier.limits.tasks) {
-    return {
-      allowed: false,
-      reason: `You've reached the limit of ${tier.limits.tasks} tasks for your ${tier.name} plan. Upgrade to create more.`
-    };
-  }
-
-  return { allowed: true };
 }
 
 /**

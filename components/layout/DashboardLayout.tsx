@@ -6,9 +6,8 @@ import { Sidebar } from './Sidebar';
 import { PageTransition } from './PageTransition';
 import { TopLoadingBar } from './TopLoadingBar';
 import { useAuth } from '@/hooks/useAuth';
-import { ref, onValue } from 'firebase/database';
-import { database } from '@/lib/firebase';
-import { Agent, Task, UserSubscription } from '@/types';
+import { useData } from '@/contexts/DataContext';
+import { UserSubscription } from '@/types';
 import { SettingsModal } from '../modals/SettingsModal';
 import { UpgradeModal } from '../modals/UpgradeModal';
 import { HelpModal } from '../modals/HelpModal';
@@ -20,9 +19,8 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, loading } = useAuth();
+  const { agents, tasks } = useData(); // Use DataContext for agents and tasks from Supabase
   const router = useRouter();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -63,56 +61,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     loadSubscription();
   }, [user]);
 
-  useEffect(() => {
-    if (!user || !database) {
-      return;
-    }
-
-    // Listen to agents
-    const agentsRef = ref(database, `agents/${user.uid}`);
-    const unsubscribeAgents = onValue(agentsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const agentsList = Object.entries(data).map(([id, agent]: [string, any]) => ({
-          id,
-          ...agent,
-        }));
-        setAgents(agentsList);
-      } else {
-        setAgents([]);
-      }
-    });
-
-    // Listen to tasks
-    const tasksRef = ref(database, `tasks/${user.uid}`);
-    const unsubscribeTasks = onValue(tasksRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const tasksList = Object.entries(data).map(([id, task]: [string, any]) => ({
-          id,
-          ...task,
-        }));
-        setTasks(tasksList);
-      } else {
-        setTasks([]);
-      }
-    });
-
-    // Listen to subscription changes
-    const subscriptionRef = ref(database, `users/${user.uid}/subscription`);
-    const unsubscribeSubscription = onValue(subscriptionRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setSubscription(data as UserSubscription);
-      }
-    });
-
-    return () => {
-      unsubscribeAgents();
-      unsubscribeTasks();
-      unsubscribeSubscription();
-    };
-  }, [user]);
+  // No longer need to load agents/tasks here - they come from DataContext (Supabase)
 
   if (!user) {
     return (
