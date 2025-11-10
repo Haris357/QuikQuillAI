@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { 
-  User as FirebaseUser, 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut as firebaseSignOut 
+import {
+  User as FirebaseUser,
+  onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { User } from '@/types';
+import { initializeUserSubscription } from '@/lib/subscription';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -21,8 +22,11 @@ export function useAuth() {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
+        // Initialize subscription for new users
+        await initializeUserSubscription(firebaseUser.uid);
+
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
@@ -58,9 +62,11 @@ export function useAuth() {
       console.warn('Firebase auth not initialized');
       return;
     }
-    
+
     try {
       await firebaseSignOut(auth);
+      // Redirect to home page after sign out
+      window.location.href = '/';
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;

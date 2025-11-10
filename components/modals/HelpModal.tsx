@@ -26,7 +26,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface HelpModalProps {
   open: boolean;

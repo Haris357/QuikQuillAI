@@ -1,11 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { markdownToHtml } from './markdown';
+import { updateTokenUsage, hasTokensAvailable, getUserSubscription } from './subscription';
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
 
-export const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+export const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
-// Track token usage globally
+// Track token usage globally (for display purposes)
 let totalTokensUsed = 0;
 
 export function getTotalTokensUsed(): number {
@@ -16,8 +17,22 @@ export function resetTokenUsage(): void {
   totalTokensUsed = 0;
 }
 
-export async function generateContent(prompt: string, convertToHtml: boolean = false): Promise<string> {
+export async function generateContent(
+  prompt: string,
+  userId?: string,
+  convertToHtml: boolean = false
+): Promise<string> {
   try {
+    // Check token availability if userId provided
+    if (userId) {
+      const subscription = await getUserSubscription(userId);
+      const estimatedTokens = Math.ceil(prompt.length / 4); // Rough estimate
+
+      if (!hasTokensAvailable(subscription, estimatedTokens)) {
+        throw new Error('Insufficient tokens. Please upgrade your plan or wait for your monthly reset.');
+      }
+    }
+
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
@@ -25,7 +40,13 @@ export async function generateContent(prompt: string, convertToHtml: boolean = f
     // Track token usage
     const usageMetadata = response.usageMetadata;
     if (usageMetadata) {
-      totalTokensUsed += usageMetadata.totalTokenCount || 0;
+      const tokensUsed = usageMetadata.totalTokenCount || 0;
+      totalTokensUsed += tokensUsed;
+
+      // Update user's subscription token usage
+      if (userId && tokensUsed > 0) {
+        await updateTokenUsage(userId, tokensUsed);
+      }
     }
 
     // Convert markdown to HTML if requested
@@ -34,23 +55,23 @@ export async function generateContent(prompt: string, convertToHtml: boolean = f
     }
 
     return text;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating content:', error);
-    throw new Error('Failed to generate content');
+    throw error;
   }
 }
 
-export async function rephraseText(text: string, tone: string = 'professional'): Promise<string> {
+export async function rephraseText(text: string, tone: string = 'professional', userId?: string): Promise<string> {
   const prompt = `Please rephrase the following text in a ${tone} tone while maintaining the original meaning:
 
 "${text}"
 
 Return only the rephrased text without any additional commentary.`;
-  
-  return await generateContent(prompt);
+
+  return await generateContent(prompt, userId);
 }
 
-export async function continueWriting(context: string, prompt: string, style: string, tone: string): Promise<string> {
+export async function continueWriting(context: string, prompt: string, style: string, tone: string, userId?: string): Promise<string> {
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
 
 User Request: ${prompt}
@@ -74,10 +95,10 @@ Instructions:
 
 CRITICAL: Return ONLY the requested content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the content.`;
 
-  return await generateContent(fullPrompt, true); // Convert to HTML
+  return await generateContent(fullPrompt, userId, true); // Convert to HTML
 }
 
-export async function improveContent(content: string, instruction: string, style: string, tone: string): Promise<string> {
+export async function improveContent(content: string, instruction: string, style: string, tone: string, userId?: string): Promise<string> {
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
 
 Current Content:
@@ -102,7 +123,7 @@ Instructions:
 
 CRITICAL: Return ONLY the improved content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the improved content.`;
 
-  return await generateContent(fullPrompt, true); // Convert to HTML
+  return await generateContent(fullPrompt, userId, true); // Convert to HTML
 }
 
 export async function generateInitialContent(
@@ -114,7 +135,8 @@ export async function generateInitialContent(
   wordCount?: number,
   targetAudience?: string,
   instructions?: string,
-  references?: string[]
+  references?: string[],
+  userId?: string
 ): Promise<string> {
   const fullPrompt = `You are a professional ${style} writer with a ${tone} tone.
 
@@ -145,10 +167,10 @@ ${targetAudience ? `- Tailor the content for ${targetAudience}` : ''}
 
 CRITICAL: Return ONLY the requested content. DO NOT include any introduction like "Here is...", "Of course...", "Certainly...", or explanations. Start directly with the content.`;
 
-  return await generateContent(fullPrompt, true); // Convert to HTML
+  return await generateContent(fullPrompt, userId, true); // Convert to HTML
 }
 
-export async function generateContentSuggestions(content: string): Promise<Array<{
+export async function generateContentSuggestions(content: string, userId?: string): Promise<Array<{
   type: 'improvement' | 'grammar' | 'style' | 'structure';
   title: string;
   description: string;
@@ -182,8 +204,8 @@ Format your response as JSON array like this:
 Provide only the JSON array, no other text.`;
 
   try {
-    const response = await generateContent(prompt);
-    
+    const response = await generateContent(prompt, userId);
+
     // Clean the response to extract just the JSON
     const cleanResponse = response.replace(/```json\n?|\n?```/g, '').trim();
     const suggestions = JSON.parse(cleanResponse);
@@ -204,7 +226,7 @@ Provide only the JSON array, no other text.`;
   }
 }
 
-export async function formatContent(content: string): Promise<string> {
+export async function formatContent(content: string, userId?: string): Promise<string> {
   // Strip HTML tags to get plain text
   const plainText = content.replace(/<[^>]*>/g, '').trim();
 
@@ -235,10 +257,10 @@ Instructions:
 
 CRITICAL: Return ONLY the formatted content in markdown. DO NOT add "Here is the formatted content", "Certainly", or ANY introduction/explanation. Start immediately with the formatted content.`;
 
-  return await generateContent(prompt, true); // Convert to HTML
+  return await generateContent(prompt, userId, true); // Convert to HTML
 }
 
-export async function applySuggestionToContent(content: string, suggestionTitle: string, suggestionDescription: string): Promise<string> {
+export async function applySuggestionToContent(content: string, suggestionTitle: string, suggestionDescription: string, userId?: string): Promise<string> {
   // Strip HTML tags to get plain text
   const plainText = content.replace(/<[^>]*>/g, '').trim();
 
@@ -266,10 +288,10 @@ Instructions:
 
 CRITICAL: Return ONLY the improved content. DO NOT add "Here is...", "I've applied...", "Certainly", or ANY introduction/explanation. Return the content directly.`;
 
-  return await generateContent(prompt, true); // Convert to HTML
+  return await generateContent(prompt, userId, true); // Convert to HTML
 }
 
-export async function generateSocialMediaStory(topic: string, platform: string, style: string, tone: string): Promise<string> {
+export async function generateSocialMediaStory(topic: string, platform: string, style: string, tone: string, userId?: string): Promise<string> {
   const prompt = `You are a creative social media content writer. Create an engaging ${platform} story/post.
 
 Topic: ${topic}
@@ -287,5 +309,5 @@ Instructions:
 
 CRITICAL: Return ONLY the ${platform} post/story content. DO NOT add "Here is...", "Certainly...", or ANY introduction. Start directly with the post content.`;
 
-  return await generateContent(prompt, true);
+  return await generateContent(prompt, userId, true);
 }

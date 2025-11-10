@@ -39,7 +39,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
 import { ref, onValue, push, set, remove, off } from 'firebase/database';
 import { database } from '@/lib/firebase';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -350,28 +350,21 @@ export function Dashboard() {
     }
   };
 
-  const handleSaveTask = async (taskId: string, content: string) => {
+  const handleSaveTask = async (taskId: string, content: string, revisions?: any[]) => {
     if (!user || !database) return;
-    
+
     try {
       const taskRef = ref(database, `tasks/${user.uid}/${taskId}`);
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
-      
-      const newRevision = {
-        id: Date.now().toString(),
-        content,
-        timestamp: new Date().toISOString(),
-        type: 'user-edit' as const,
-      };
-      
+
       const updatedTask = {
         ...task,
         content,
         updatedAt: new Date().toISOString(),
-        revisions: [...task.revisions, newRevision],
+        revisions: revisions || task.revisions, // Use provided revisions or keep existing
       };
-      
+
       await set(taskRef, updatedTask);
       toast.success('Task saved successfully!');
     } catch (error) {
@@ -440,9 +433,8 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Agents</p>
                   <p className="text-3xl font-bold text-gray-900">{agents.length}</p>
-                  <p className="text-xs text-green-600 mt-1">
-                    <TrendingUp className="h-3 w-3 inline mr-1" />
-                    +2 this month
+                  <p className="text-xs text-gray-500 mt-1">
+                    AI writers created
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
@@ -464,9 +456,8 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Tasks</p>
                   <p className="text-3xl font-bold text-gray-900">{totalTasks}</p>
-                  <p className="text-xs text-green-600 mt-1">
-                    <TrendingUp className="h-3 w-3 inline mr-1" />
-                    +{Math.floor(totalTasks * 0.3)} this week
+                  <p className="text-xs text-gray-500 mt-1">
+                    Writing tasks created
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">

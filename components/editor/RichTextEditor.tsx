@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Task, Revision } from '@/types';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface RichTextEditorProps {
   task: Task;

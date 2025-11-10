@@ -59,11 +59,23 @@ export interface User {
   photoURL?: string;
   tokensUsed?: number;
   tokensLimit?: number;
-  subscription?: {
-    status: 'active' | 'inactive' | 'trial';
-    planId: string;
-    expiresAt: string;
-  };
+  subscription?: UserSubscription;
+}
+
+export interface UserSubscription {
+  status: 'active' | 'inactive' | 'trial' | 'past_due' | 'canceled';
+  tier: 'free' | 'starter' | 'pro' | 'unlimited';
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string;
+  trialEndsAt?: string;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+  tokensUsedThisPeriod: number;
+  tokensLimit: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Project {

@@ -38,13 +38,13 @@ import {
   Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface EditorDrawerProps {
   open: boolean;
   onClose: () => void;
   task: Task;
-  onSave: (content: string) => void;
+  onSave: (content: string, revisions?: any[]) => void;
   onRephrase: (selectedText: string) => Promise<string>;
   onPromptSubmit: (prompt: string) => Promise<string>;
   agentStyle: string;
@@ -82,6 +82,7 @@ export function EditorDrawer({
   const [editingRevisionName, setEditingRevisionName] = useState('');
   const [isFormattingContent, setIsFormattingContent] = useState(false);
   const [isGeneratingSocial, setIsGeneratingSocial] = useState(false);
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setContent(task.content || '');
@@ -89,6 +90,32 @@ export function EditorDrawer({
     setCurrentRevisionIndex((task.revisions || []).length - 1);
     // Don't auto-generate suggestions anymore
   }, [task]);
+
+  // Auto-save functionality - debounced
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      // Clear existing timeout
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+
+      // Set new timeout for auto-save after 3 seconds of inactivity
+      const timeout = setTimeout(async () => {
+        console.log('Auto-saving...');
+        await handleSave();
+        toast.success('Auto-saved', { duration: 1000 });
+      }, 3000);
+
+      setAutoSaveTimeout(timeout);
+    }
+
+    // Cleanup
+    return () => {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+    };
+  }, [content, hasUnsavedChanges]);
 
   const generateRevisionName = async (content: string, type: string): Promise<string> => {
     try {
@@ -210,7 +237,7 @@ Provide only the JSON array, no other text.`;
       setRevisions(updatedRevisions);
       setCurrentRevisionIndex(updatedRevisions.length - 1);
 
-      onSave(improvedContent);
+      onSave(improvedContent, updatedRevisions);
 
       toast.success(`Applied: ${suggestion.title}`);
     } catch (error) {
@@ -247,8 +274,8 @@ Provide only the JSON array, no other text.`;
     setRevisions(updatedRevisions);
     setCurrentRevisionIndex(updatedRevisions.length - 1);
     setHasUnsavedChanges(false);
-    
-    onSave(finalContent);
+
+    onSave(finalContent, updatedRevisions);
     toast.success('Content saved successfully!');
   };
 
@@ -283,10 +310,10 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       const updatedRevisions = [...revisions, newRevision];
       setRevisions(updatedRevisions);
       setCurrentRevisionIndex(updatedRevisions.length - 1);
-      
+
       setPrompt('');
-      onSave(aiResponse);
-      
+      onSave(aiResponse, updatedRevisions);
+
       toast.success('AI content generated successfully!');
     } catch (error) {
       console.error('Error processing prompt:', error);
@@ -301,7 +328,7 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
     setCurrentRevisionIndex(index);
     setHasUnsavedChanges(false);
     // Don't create a new revision when restoring - just update the current content
-    onSave(revision.content);
+    onSave(revision.content, revisions);
     toast.success('Revision restored successfully!');
   };
 
@@ -375,7 +402,7 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       setRevisions(updatedRevisions);
       setCurrentRevisionIndex(updatedRevisions.length - 1);
 
-      onSave(formattedContent);
+      onSave(formattedContent, updatedRevisions);
 
       toast.success('Content formatted successfully!');
     } catch (error) {
@@ -430,7 +457,7 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       setRevisions(updatedRevisions);
       setCurrentRevisionIndex(updatedRevisions.length - 1);
 
-      onSave(socialContent);
+      onSave(socialContent, updatedRevisions);
 
       toast.success(`${platform} story created!`);
     } catch (error) {

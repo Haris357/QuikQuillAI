@@ -4,9 +4,6 @@ import { marked } from 'marked';
 marked.setOptions({
   gfm: true, // GitHub Flavored Markdown
   breaks: true, // Convert \n to <br>
-  headerIds: true,
-  mangle: false,
-  headerPrefix: '',
 });
 
 /**

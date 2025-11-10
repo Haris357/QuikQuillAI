@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import NProgress from 'nprogress';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -21,28 +24,33 @@ import {
   User,
   LogOut,
   TrendingUp,
-  Database
+  Database,
+  Crown,
+  Clock,
+  AlertCircle,
+  ArrowUpRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
   DropdownMenuLabel
 } from '@/components/ui/dropdown-menu';
+import { UserSubscription } from '@/types';
+import { getDaysRemainingInTrial, formatTokenCount } from '@/lib/subscription';
 
 interface SidebarProps {
-  currentView: string;
-  onViewChange: (view: string) => void;
   agentCount: number;
   taskCount: number;
   tokensUsed?: number;
   tokensLimit?: number;
+  subscription?: UserSubscription | null;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   onOpenSettings?: () => void;
@@ -50,13 +58,12 @@ interface SidebarProps {
   onOpenHelp?: () => void;
 }
 
-export function Sidebar({ 
-  currentView, 
-  onViewChange, 
-  agentCount, 
+export function Sidebar({
+  agentCount,
   taskCount,
   tokensUsed = 0,
   tokensLimit = 10000,
+  subscription,
   isCollapsed = false,
   onToggleCollapse,
   onOpenSettings,
@@ -64,6 +71,12 @@ export function Sidebar({
   onOpenHelp
 }: SidebarProps) {
   const { user, signOut } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const isPro = subscription?.tier === 'pro';
+  const isTrial = subscription?.status === 'trial';
+  const daysRemaining = isTrial ? getDaysRemainingInTrial(subscription) : 0;
 
   const navigationItems = [
     {
@@ -71,93 +84,107 @@ export function Sidebar({
       label: 'Dashboard',
       icon: Home,
       badge: null,
-      description: 'Overview and analytics'
+      description: 'Overview and analytics',
+      href: '/dashboard'
     },
     {
       id: 'agents',
       label: 'AI Agents',
       icon: Users,
       badge: agentCount > 0 ? agentCount.toString() : null,
-      description: 'Manage your AI writers'
+      description: 'Manage your AI writers',
+      href: '/agents'
     },
     {
       id: 'tasks',
       label: 'Tasks',
       icon: FileText,
       badge: taskCount > 0 ? taskCount.toString() : null,
-      description: 'Writing assignments'
+      description: 'Writing assignments',
+      href: '/tasks'
     }
   ];
 
   const bottomItems = [
-    {
+    // Show upgrade button only for non-Pro users
+    ...(!isPro ? [{
       id: 'upgrade',
       label: 'Upgrade to Pro',
-      icon: Star,
-      badge: 'NEW',
+      icon: Crown,
+      badge: isTrial && daysRemaining <= 1 ? `${daysRemaining}d` : 'NEW',
       description: 'Unlock premium features',
       special: true,
       onClick: onOpenUpgrade
-    },
-    {
-      id: 'settings',
-      label: 'Settings',
-      icon: Settings,
-      badge: null,
-      description: 'Account preferences',
-      onClick: onOpenSettings
-    },
-    {
-      id: 'help',
-      label: 'Help & Support',
-      icon: HelpCircle,
-      badge: null,
-      description: 'Get assistance',
-      onClick: onOpenHelp
-    }
+    }] : [])
   ];
 
   const NavItem = ({ item, isBottom = false }: { item: any; isBottom?: boolean }) => {
-    const handleClick = () => {
-      if (item.onClick) {
-        item.onClick();
-      } else {
-        onViewChange(item.id);
-      }
-    };
+    const isActive = item.href ? pathname === item.href : false;
+
+    const buttonContent = (
+      <>
+        <item.icon className={cn("h-5 w-5 flex-shrink-0", isCollapsed ? "" : "mr-3")} />
+
+        {!isCollapsed && (
+          <div className="flex items-center justify-between w-full">
+            <span className="font-medium">{item.label}</span>
+            {item.badge && (
+              <Badge
+                variant={item.special ? "default" : "secondary"}
+                className={cn(
+                  "ml-auto text-xs",
+                  item.special ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                )}
+              >
+                {item.badge}
+              </Badge>
+            )}
+          </div>
+        )}
+      </>
+    );
+
+    const buttonClassName = cn(
+      "w-full justify-start h-12 px-3 mb-1 transition-all duration-200",
+      isActive
+        ? "bg-green-600 text-white hover:bg-green-700 hover:text-white"
+        : "text-gray-600 hover:bg-green-600 hover:text-white",
+      isCollapsed && "justify-center px-2",
+      item.special && "bg-green-50 hover:bg-green-600 hover:text-white text-green-700 border border-green-200 font-medium"
+    );
+
+    if (item.href) {
+      const handleClick = () => {
+        if (pathname !== item.href) {
+          NProgress.start();
+        }
+      };
+
+      return (
+        <Link
+          href={item.href}
+          className="nav-item-wrapper block"
+          onClick={handleClick}
+          prefetch={true}
+        >
+          <Button
+            variant="ghost"
+            className={buttonClassName}
+          >
+            {buttonContent}
+          </Button>
+        </Link>
+      );
+    }
 
     return (
       <div className="nav-item-wrapper">
         <Button
           variant="ghost"
-          onClick={handleClick}
-          className={cn(
-            "w-full justify-start h-12 px-3 mb-1 transition-all duration-200",
-            currentView === item.id 
-              ? "bg-green-600 text-white hover:bg-green-700 hover:text-white" 
-              : "text-gray-600 hover:bg-green-600 hover:text-white",
-            isCollapsed && "justify-center px-2",
-            item.special && "bg-green-50 hover:bg-green-600 hover:text-white text-green-700 border border-green-200 font-medium"
-          )}
+          onClick={item.onClick}
+          className={buttonClassName}
         >
-          <item.icon className={cn("h-5 w-5 flex-shrink-0", isCollapsed ? "" : "mr-3")} />
-          
-          {!isCollapsed && (
-            <div className="flex items-center justify-between w-full">
-              <span className="font-medium">{item.label}</span>
-              {item.badge && (
-                <Badge 
-                  variant={item.special ? "default" : "secondary"}
-                  className={cn(
-                    "ml-auto text-xs",
-                    item.special ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
-                  )}
-                >
-                  {item.badge}
-                </Badge>
-              )}
-            </div>
-          )}
+          {buttonContent}
         </Button>
       </div>
     );
@@ -174,17 +201,27 @@ export function Sidebar({
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
           {!isCollapsed && (
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-3 flex-1">
               <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
                 <Sparkles className="h-5 w-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-gray-900">QuikQuill</h1>
-                <p className="text-xs text-gray-500">AI Writing Platform</p>
+              <div className="flex-1">
+                <div className="flex items-center space-x-2">
+                  <h1 className="text-lg font-bold text-gray-900">QuikQuill</h1>
+                  {isPro && (
+                    <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0">
+                      <Crown className="h-3 w-3 mr-1" />
+                      PRO
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">
+                  {isPro ? 'Pro Plan' : isTrial ? `${daysRemaining} days trial left` : 'AI Writing Platform'}
+                </p>
               </div>
             </div>
           )}
-          
+
           {onToggleCollapse && (
             <Button
               variant="ghost"
@@ -202,25 +239,26 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Quick Actions */}
-      {!isCollapsed && (
+      {/* Trial Warning */}
+      {!isCollapsed && isTrial && daysRemaining <= 2 && (
         <div className="p-4 border-b border-gray-100">
-          <div className="space-y-2">
+          <div className="p-3 bg-gradient-to-br from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg">
+            <div className="flex items-start space-x-2 mb-2">
+              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-yellow-900">Trial Ending Soon!</p>
+                <p className="text-xs text-yellow-700 mt-1">
+                  {daysRemaining === 0 ? 'Last day' : `${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} left`}
+                </p>
+              </div>
+            </div>
             <Button
-              className="w-full bg-green-600 hover:bg-green-700 text-white justify-start font-medium"
-              onClick={() => onViewChange('create-agent')}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New AI Agent
-            </Button>
-            <Button
-              variant="outline"
               size="sm"
-              className="w-full text-xs border-gray-200 hover:bg-green-600 hover:text-white"
-              onClick={() => onViewChange('create-task')}
+              onClick={onOpenUpgrade}
+              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white text-xs h-7"
             >
-              <FileText className="h-3 w-3 mr-1" />
-              New Task
+              <Crown className="h-3 w-3 mr-1" />
+              Upgrade Now
             </Button>
           </div>
         </div>
@@ -306,8 +344,8 @@ export function Sidebar({
         </nav>
 
         {/* User Profile */}
-        {user && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -323,7 +361,7 @@ export function Sidebar({
                       {user.displayName?.charAt(0) || user.email.charAt(0)}
                     </AvatarFallback>
                   </Avatar>
-                  
+
                   {!isCollapsed && (
                     <div className="ml-3 flex-1 text-left min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
@@ -337,20 +375,41 @@ export function Sidebar({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuLabel>
+                  <div className="flex items-center justify-between">
+                    <span>My Account</span>
+                    {isPro && (
+                      <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 text-xs">
+                        <Crown className="h-3 w-3 mr-1" />
+                        PRO
+                      </Badge>
+                    )}
+                  </div>
+                  {isTrial && daysRemaining <= 1 && (
+                    <p className="text-xs text-yellow-600 font-normal mt-1 flex items-center">
+                      <Clock className="h-3 w-3 mr-1" />
+                      {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} trial left
+                    </p>
+                  )}
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onOpenSettings}>
                   <User className="mr-2 h-4 w-4" />
                   Profile Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  NProgress.start();
+                  router.push('/billing');
+                }}>
                   <CreditCard className="mr-2 h-4 w-4" />
                   Billing & Plans
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Bell className="mr-2 h-4 w-4" />
-                  Notifications
-                </DropdownMenuItem>
+                {!isPro && (
+                  <DropdownMenuItem onClick={onOpenUpgrade} className="text-green-600 focus:text-green-700">
+                    <Crown className="mr-2 h-4 w-4" />
+                    Upgrade to Pro
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={signOut} className="text-red-600 focus:text-red-600">
                   <LogOut className="mr-2 h-4 w-4" />
@@ -358,8 +417,21 @@ export function Sidebar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        )}
+          ) : (
+            <div className={cn(
+              "w-full h-12 px-3 flex items-center",
+              isCollapsed && "justify-center px-2"
+            )}>
+              <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse flex-shrink-0"></div>
+              {!isCollapsed && (
+                <div className="ml-3 flex-1 space-y-2">
+                  <div className="h-3 bg-gray-200 rounded animate-pulse w-24"></div>
+                  <div className="h-2 bg-gray-200 rounded animate-pulse w-32"></div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

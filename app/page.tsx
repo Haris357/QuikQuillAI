@@ -1,43 +1,35 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { LandingPage } from '@/components/landing/LandingPage';
+import { ProfessionalLandingPage } from '@/components/landing/ProfessionalLandingPage';
 import { SignInPage } from '@/components/auth/SignInPage';
-import { Dashboard } from '@/components/dashboard/Dashboard';
-import { TutorialModal } from '@/components/tutorial/TutorialModal';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 export default function Home() {
   const { user, loading, signInWithGoogle } = useAuth();
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'landing' | 'signin' | 'dashboard'>('landing');
+  const router = useRouter();
+  const [currentPage, setCurrentPage] = useState<'landing' | 'signin'>('landing');
   const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    // Show tutorial for new users
-    if ((user || demoMode) && !localStorage.getItem('quikquill-tutorial-completed')) {
-      setShowTutorial(true);
-      setCurrentPage('dashboard');
-    } else if (user || demoMode) {
-      setCurrentPage('dashboard');
+    // Redirect to dashboard if authenticated
+    if (user) {
+      router.push('/dashboard');
     }
-  }, [user, demoMode]);
-
-  const handleTutorialClose = () => {
-    setShowTutorial(false);
-    localStorage.setItem('quikquill-tutorial-completed', 'true');
-  };
+  }, [user, router]);
 
   const handleSignIn = async () => {
     if (signInWithGoogle) {
       setAuthLoading(true);
-      setAuthError(null);
+      setAuthError(undefined);
       try {
         await signInWithGoogle();
+        // After successful sign in, redirect to dashboard
+        router.push('/dashboard');
       } catch (error: any) {
         console.error('Sign in error:', error);
         setAuthError(error.message || 'Failed to sign in. Please try again.');
@@ -45,9 +37,8 @@ export default function Home() {
         setAuthLoading(false);
       }
     } else {
-      // Demo mode for when Firebase is not configured
-      setDemoMode(true);
-      setCurrentPage('dashboard');
+      // Redirect to dashboard even if Firebase is not configured (demo mode)
+      router.push('/dashboard');
     }
   };
 
@@ -57,7 +48,7 @@ export default function Home() {
 
   const handleBackToLanding = () => {
     setCurrentPage('landing');
-    setAuthError(null);
+    setAuthError(undefined);
   };
 
   if (loading) {
@@ -76,25 +67,10 @@ export default function Home() {
     );
   }
 
-  // Show dashboard if user is authenticated or in demo mode
-  if ((user || demoMode) && currentPage === 'dashboard') {
-    return (
-      <>
-        <Dashboard />
-        <TutorialModal open={showTutorial} onClose={handleTutorialClose} />
-        {demoMode && !user && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-lg shadow-lg z-50">
-            <p className="text-sm font-medium">Demo Mode - Configure Firebase to enable full functionality</p>
-          </div>
-        )}
-      </>
-    );
-  }
-
   // Show sign in page
   if (currentPage === 'signin') {
     return (
-      <SignInPage 
+      <SignInPage
         onBack={handleBackToLanding}
         onSignIn={handleSignIn}
         loading={authLoading}
@@ -104,5 +80,5 @@ export default function Home() {
   }
 
   // Show landing page
-  return <LandingPage onSignIn={handleGoToSignIn} />;
+  return <ProfessionalLandingPage onSignIn={handleGoToSignIn} />;
 }

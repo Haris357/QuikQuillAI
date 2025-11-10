@@ -64,7 +64,7 @@ export function TipTapEditor({
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
       // Set content without emitting update to prevent auto-save loops
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content, { emitUpdate: false });
     }
   }, [content, editor]);
 

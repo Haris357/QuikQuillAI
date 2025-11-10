@@ -20,7 +20,8 @@ import {
   CreditCard
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
 interface UpgradeModalProps {
   open: boolean;
@@ -124,27 +125,19 @@ const benefits = [
 ];
 
 export function UpgradeModal({ open, onClose }: UpgradeModalProps) {
+  const router = useRouter();
   const [selectedPlan, setSelectedPlan] = useState('pro');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [loading, setLoading] = useState(false);
 
   const handleUpgrade = async () => {
-    setLoading(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success('Upgrade successful! Welcome to Pro!');
-      onClose();
-    } catch (error) {
-      toast.error('Upgrade failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    onClose();
+    router.push('/pricing');
   };
 
   const handleContactSales = () => {
-    toast.info('Redirecting to sales team...');
-    // Redirect to sales contact
+    onClose();
+    router.push('/contact');
   };
 
   return (

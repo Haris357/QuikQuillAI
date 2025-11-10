@@ -1,8 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getDatabase } from 'firebase/database';
-import { getStorage } from 'firebase/storage';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, FirebaseApp } from 'firebase/app';
+import { getAuth, Auth } from 'firebase/auth';
+import { getDatabase, Database } from 'firebase/database';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
+import { getFirestore, Firestore } from 'firebase/firestore';
 
 // Default configuration for development
 const defaultConfig = {
@@ -25,11 +25,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || defaultConfig.appId
 };
 
-let app;
-let auth;
-let database;
-let storage;
-let firestore;
+let app: FirebaseApp | undefined;
+let auth: Auth | null;
+let database: Database | null;
+let storage: FirebaseStorage | null;
+let firestore: Firestore | null;
 
 try {
   app = initializeApp(firebaseConfig);
