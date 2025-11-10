@@ -62,6 +62,9 @@ export function ScriptUpload({ onFilesChange, existingScripts = [], onDeleteExis
       'application/json': ['.json'],
       'text/html': ['.html'],
       'text/css': ['.css'],
+      'application/pdf': ['.pdf'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
     maxSize: 10 * 1024 * 1024, // 10MB
   });
@@ -101,7 +104,7 @@ export function ScriptUpload({ onFilesChange, existingScripts = [], onDeleteExis
               Drag & drop script files here, or click to browse
             </p>
             <p className="text-sm text-gray-500 mb-3">
-              Supports: .txt, .js, .py, .ts, .md, .json, .html, .css
+              Supports: .txt, .pdf, .doc, .docx, .js, .py, .ts, .md, .json, .html, .css
             </p>
             <p className="text-xs text-gray-400">
               Maximum file size: 10MB per file

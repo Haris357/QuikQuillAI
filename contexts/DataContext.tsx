@@ -11,8 +11,8 @@ interface DataContextType {
   agents: Agent[];
   tasks: Task[];
   loading: boolean;
-  handleCreateAgent: (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => Promise<void>;
-  handleUpdateAgent: (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => Promise<void>;
+  handleCreateAgent: (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => Promise<void>;
+  handleUpdateAgent: (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => Promise<void>;
   handleDeleteAgent: (agentId: string) => Promise<void>;
   handleCreateTask: (selectedAgentId: string, taskData: any) => Promise<void>;
   handleUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
@@ -132,7 +132,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return 'pending';
   };
 
-  const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => {
+  const handleCreateAgent = async (agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => {
     if (!user) {
       const newAgent: Agent = {
         id: Date.now().toString(),
@@ -167,7 +167,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
 
       if (newAgent) {
-        toast.success('AI Agent created successfully!');
+        // Upload script files if provided
+        if (scriptFiles && scriptFiles.length > 0) {
+          for (const file of scriptFiles) {
+            await supabaseService.script.uploadScript(file, newAgent.id, user.uid);
+          }
+          toast.success(`AI Agent created with ${scriptFiles.length} training script(s)!`);
+        } else {
+          toast.success('AI Agent created successfully!');
+        }
       }
     } catch (error) {
       console.error('Error creating agent:', error);
@@ -175,7 +183,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const handleUpdateAgent = async (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>) => {
+  const handleUpdateAgent = async (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => {
     if (!user) return;
 
     const agent = agents.find(a => a.id === agentId);
@@ -194,7 +202,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         content_types: agentData.contentTypes || [],
       });
 
-      toast.success('Agent updated successfully!');
+      // Upload script files if provided
+      if (scriptFiles && scriptFiles.length > 0) {
+        for (const file of scriptFiles) {
+          await supabaseService.script.uploadScript(file, agentId, user.uid);
+        }
+        toast.success(`Agent updated with ${scriptFiles.length} new script(s)!`);
+      } else {
+        toast.success('Agent updated successfully!');
+      }
     } catch (error) {
       console.error('Error updating agent:', error);
       toast.error('Failed to update agent');
