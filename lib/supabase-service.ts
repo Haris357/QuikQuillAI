@@ -502,6 +502,92 @@ export const taskService = {
 };
 
 // =====================================================
+// TASK REVISION OPERATIONS
+// =====================================================
+
+export const revisionService = {
+  /**
+   * Create a new task revision
+   */
+  async createRevision(
+    taskId: string,
+    userId: string,
+    content: string,
+    revisionType: 'ai-generated' | 'user-edit' | 'rephrased',
+    revisionName?: string
+  ): Promise<any> {
+    const { data, error } = await supabase
+      .from('task_revisions')
+      .insert({
+        task_id: taskId,
+        user_id: userId,
+        content: content,
+        revision_type: revisionType,
+        revision_name: revisionName || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating revision:', error);
+      throw error;
+    }
+    return data;
+  },
+
+  /**
+   * Get all revisions for a task
+   */
+  async getTaskRevisions(taskId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('task_revisions')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching revisions:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  /**
+   * Delete a revision
+   */
+  async deleteRevision(revisionId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('task_revisions')
+      .delete()
+      .eq('id', revisionId);
+
+    if (error) {
+      console.error('Error deleting revision:', error);
+      throw error;
+    }
+    return true;
+  },
+
+  /**
+   * Update revision name
+   */
+  async updateRevisionName(revisionId: string, name: string): Promise<any> {
+    const { data, error } = await supabase
+      .from('task_revisions')
+      .update({ revision_name: name })
+      .eq('id', revisionId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating revision name:', error);
+      throw error;
+    }
+    return data;
+  },
+};
+
+// =====================================================
 // USAGE TRACKING OPERATIONS
 // =====================================================
 
@@ -611,6 +697,7 @@ export default {
   agent: agentService,
   script: scriptService,
   task: taskService,
+  revision: revisionService,
   usage: usageService,
   subscription: subscriptionService,
 };

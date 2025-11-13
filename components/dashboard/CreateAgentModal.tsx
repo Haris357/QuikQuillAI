@@ -70,21 +70,92 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
-    name: editingAgent?.name || '',
-    role: editingAgent?.role || '',
-    writingStyle: editingAgent?.writingStyle || '',
-    tone: editingAgent?.tone || '',
-    keywords: editingAgent?.keywords || [],
-    description: editingAgent?.description || '',
-    expertise: editingAgent?.expertise || '',
-    targetAudience: editingAgent?.targetAudience || '',
-    contentTypes: editingAgent?.contentTypes || [] as string[],
+    name: '',
+    role: '',
+    writingStyle: '',
+    tone: '',
+    keywords: [] as string[],
+    description: '',
+    expertise: '',
+    targetAudience: '',
+    contentTypes: [] as string[],
   });
   const [keywordInput, setKeywordInput] = useState('');
-  const [selectedKeywords, setSelectedKeywords] = useState<string[]>(editingAgent?.keywords || []);
+  const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [scriptFiles, setScriptFiles] = useState<File[]>([]);
   const [existingScripts, setExistingScripts] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [canSubmit, setCanSubmit] = useState(false);
+
+  // Reset modal state when modal opens or closes
+  useEffect(() => {
+    console.log('Modal useEffect triggered:', { open, editingAgentId: editingAgent?.id });
+
+    if (!open) {
+      // When modal closes, reset everything after a brief delay to avoid visual glitch
+      const timer = setTimeout(() => {
+        console.log('Resetting modal state after close');
+        setCurrentStep(1);
+        setFormData({
+          name: '',
+          role: '',
+          writingStyle: '',
+          tone: '',
+          keywords: [],
+          description: '',
+          expertise: '',
+          targetAudience: '',
+          contentTypes: []
+        });
+        setSelectedKeywords([]);
+        setScriptFiles([]);
+        setKeywordInput('');
+        setExistingScripts([]);
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+
+    if (open) {
+      console.log('Modal opened, setting to step 1');
+      // Always start at step 1 when modal opens
+      setCurrentStep(1);
+      setCanSubmit(false); // Disable submit when modal opens
+
+      // If editing, populate form data
+      if (editingAgent) {
+        console.log('Loading editing agent data:', editingAgent.name);
+        setFormData({
+          name: editingAgent.name || '',
+          role: editingAgent.role || '',
+          writingStyle: editingAgent.writingStyle || '',
+          tone: editingAgent.tone || '',
+          keywords: editingAgent.keywords || [],
+          description: editingAgent.description || '',
+          expertise: editingAgent.expertise || '',
+          targetAudience: editingAgent.targetAudience || '',
+          contentTypes: editingAgent.contentTypes || [],
+        });
+        setSelectedKeywords(editingAgent.keywords || []);
+      } else {
+        console.log('Creating new agent, resetting form');
+        // Reset form for new agent
+        setFormData({
+          name: '',
+          role: '',
+          writingStyle: '',
+          tone: '',
+          keywords: [],
+          description: '',
+          expertise: '',
+          targetAudience: '',
+          contentTypes: []
+        });
+        setSelectedKeywords([]);
+      }
+      setScriptFiles([]);
+      setKeywordInput('');
+    }
+  }, [open, editingAgent?.id]); // Only depend on open and editingAgent.id, not the whole object
 
   // Load existing scripts when editing an agent
   useEffect(() => {
@@ -92,6 +163,8 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
       supabaseService.script.getScriptsByAgent(editingAgent.id).then(scripts => {
         setExistingScripts(scripts);
       });
+    } else {
+      setExistingScripts([]);
     }
   }, [editingAgent, user]);
 
@@ -113,6 +186,29 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    console.log('handleSubmit called, currentStep:', currentStep, 'canSubmit:', canSubmit);
+
+    // Only submit if we're on step 3
+    if (currentStep !== 3) {
+      console.log('Blocked submission - not on step 3');
+      return;
+    }
+
+    // Prevent accidental submission right after step change
+    if (!canSubmit) {
+      console.log('Blocked submission - canSubmit is false');
+      return;
+    }
+
+    // Additional validation
+    if (!formData.name || !formData.role || !formData.writingStyle || !formData.tone) {
+      console.log('Blocked submission - missing required fields');
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     setIsUploading(true);
 
     try {
@@ -133,23 +229,8 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
       // Call onSave with scriptFiles - DataContext will handle the upload
       await onSave(agentData, scriptFiles.length > 0 ? scriptFiles : undefined);
 
-      // Close modal and reset
+      // Close modal (state will be reset by useEffect when modal reopens)
       onClose();
-      setFormData({
-        name: '',
-        role: '',
-        writingStyle: '',
-        tone: '',
-        keywords: [],
-        description: '',
-        expertise: '',
-        targetAudience: '',
-        contentTypes: []
-      });
-      setSelectedKeywords([]);
-      setScriptFiles([]);
-      setExistingScripts([]);
-      setCurrentStep(1);
     } catch (error) {
       console.error('Error saving agent:', error);
       toast.error('Failed to save agent');
@@ -158,8 +239,29 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
     }
   };
 
-  const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 3));
-  const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
+  const nextStep = () => {
+    console.log('nextStep called, current:', currentStep);
+    setCanSubmit(false); // Disable submission when changing steps
+    setCurrentStep(prev => {
+      const next = Math.min(prev + 1, 3);
+      console.log('Moving to step:', next);
+
+      // Enable submission after a brief delay if moving to step 3
+      if (next === 3) {
+        setTimeout(() => {
+          console.log('Enabling submit for step 3');
+          setCanSubmit(true);
+        }, 300);
+      }
+
+      return next;
+    });
+  };
+
+  const prevStep = () => {
+    console.log('prevStep called, current:', currentStep);
+    setCurrentStep(prev => Math.max(prev - 1, 1));
+  };
 
   const renderStep1 = () => (
     <div className="space-y-6">
@@ -182,16 +284,22 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
             placeholder="e.g., Blog Writer Pro, Technical Documentation Expert"
             required
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && formData.name && formData.role) {
+                e.preventDefault();
+                nextStep();
+              }
+            }}
             className="h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
           />
         </div>
-        
+
         <div>
           <Label className="text-sm font-semibold text-gray-700 mb-2 block">
             Job Role *
           </Label>
-          <Select 
-            value={formData.role} 
+          <Select
+            value={formData.role}
             onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}
           >
             <SelectTrigger className="h-12 border-gray-200 focus:border-green-500 focus:ring-green-500">
@@ -209,6 +317,12 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
             value={formData.role}
             onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
             placeholder="Or type a custom role..."
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && formData.name && formData.role) {
+                e.preventDefault();
+                nextStep();
+              }
+            }}
             className="mt-2 h-10 border-gray-200 focus:border-green-500 focus:ring-green-500"
           />
         </div>
@@ -339,7 +453,12 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
             value={keywordInput}
             onChange={(e) => setKeywordInput(e.target.value)}
             placeholder="Add custom keyword..."
-            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddKeyword())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddKeyword();
+              }
+            }}
             className="flex-1 border-gray-200 focus:border-green-500 focus:ring-green-500"
           />
           <Button 
@@ -478,7 +597,7 @@ export function CreateAgentModal({ open, onClose, onSave, editingAgent }: Create
               ) : (
                 <Button
                   type="submit"
-                  disabled={!formData.name || !formData.role || !formData.writingStyle || !formData.tone || isUploading}
+                  disabled={!formData.name || !formData.role || !formData.writingStyle || !formData.tone || isUploading || !canSubmit}
                   className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white"
                 >
                   {isUploading ? (

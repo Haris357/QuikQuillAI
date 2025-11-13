@@ -63,8 +63,8 @@ export interface User {
 }
 
 export interface UserSubscription {
-  status: 'active' | 'inactive' | 'trial' | 'past_due' | 'canceled';
-  tier: 'free' | 'starter' | 'pro' | 'unlimited';
+  status: 'active' | 'inactive' | 'trial' | 'trialing' | 'past_due' | 'canceled';
+  tier: 'free' | 'pro';
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripePriceId?: string;

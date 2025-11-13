@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { User } from '@/types';
-import { initializeUserSubscription } from '@/lib/subscription';
+import { initializeUserSubscription, getUserSubscription } from '@/lib/subscription';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -27,11 +27,15 @@ export function useAuth() {
         // Initialize subscription for new users
         await initializeUserSubscription(firebaseUser.uid);
 
+        // Load subscription data from Supabase
+        const subscription = await getUserSubscription(firebaseUser.uid);
+
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
           displayName: firebaseUser.displayName || '',
           photoURL: firebaseUser.photoURL || undefined,
+          subscription: subscription || undefined,
         });
       } else {
         setUser(null);
@@ -73,10 +77,25 @@ export function useAuth() {
     }
   };
 
+  const refreshSubscription = async () => {
+    if (!user) return;
+
+    try {
+      const subscription = await getUserSubscription(user.uid);
+      setUser({
+        ...user,
+        subscription: subscription || undefined,
+      });
+    } catch (error) {
+      console.error('Error refreshing subscription:', error);
+    }
+  };
+
   return {
     user,
     loading,
     signInWithGoogle,
     signOut,
+    refreshSubscription,
   };
 }

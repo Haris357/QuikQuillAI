@@ -38,12 +38,26 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
     const tokensUsed = await supabaseService.user.getMonthlyTokenUsage(userId);
     const tier = user.subscription_tier || 'free';
 
+    // Determine actual status
+    let status: 'active' | 'inactive' | 'trial' | 'trialing' | 'past_due' | 'canceled' = 'inactive';
+    if (user.subscription_status === 'trialing' || (user.subscription_status === 'active' && user.trial_ends_at && new Date(user.trial_ends_at) > new Date())) {
+      status = 'trial';
+    } else if (user.subscription_status === 'active') {
+      status = 'active';
+    } else if (user.subscription_status === 'past_due') {
+      status = 'past_due';
+    } else if (user.subscription_status === 'cancelled' || user.subscription_status === 'canceled') {
+      status = 'canceled';
+    }
+
     return {
-      status: user.subscription_status === 'active' ? (user.trial_ends_at ? 'trial' : 'active') : 'inactive',
-      tier: tier as 'free' | 'pro' | 'enterprise',
+      status,
+      tier: tier as 'free' | 'pro',
       trialEndsAt: user.trial_ends_at || undefined,
       tokensUsedThisPeriod: tokensUsed,
-      tokensLimit: SUBSCRIPTION_TIERS[tier as 'free' | 'pro' | 'enterprise'].tokens,
+      tokensLimit: SUBSCRIPTION_TIERS[tier as 'free' | 'pro'].tokens,
+      stripeCustomerId: user.stripe_customer_id || undefined,
+      stripeSubscriptionId: user.stripe_subscription_id || undefined,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     };

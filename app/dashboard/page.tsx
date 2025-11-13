@@ -21,7 +21,7 @@ import {
   Target
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { getUserSubscription } from '@/lib/subscription';
+import { getUserSubscription, formatTokenCount } from '@/lib/subscription';
 import { SUBSCRIPTION_TIERS } from '@/lib/stripe';
 import { UserSubscription } from '@/types';
 
@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const { agents, tasks } = useData();
   const [showTutorial, setShowTutorial] = useState(false);
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+  const [syncingSubscription, setSyncingSubscription] = useState(false);
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
@@ -42,6 +43,49 @@ export default function DashboardPage() {
     if (user && !localStorage.getItem('quikquill-tutorial-completed')) {
       setShowTutorial(true);
     }
+
+    // Check for subscription success from Stripe checkout
+    const urlParams = new URLSearchParams(window.location.search);
+    const success = urlParams.get('success');
+    const sessionId = urlParams.get('session_id');
+
+    if (success === 'true' && sessionId) {
+      // Poll for subscription update (webhook might take a few seconds)
+      let attempts = 0;
+      const maxAttempts = 10; // Try for 10 seconds
+
+      const pollSubscription = async () => {
+        attempts++;
+
+        if (user) {
+          const latestSub = await getUserSubscription(user.uid);
+
+          // Check if subscription is updated to pro
+          if (latestSub?.tier === 'pro' || attempts >= maxAttempts) {
+            setSubscription(latestSub);
+            // Clean up URL and show success message
+            window.history.replaceState({}, '', '/dashboard?subscribed=true');
+
+            // Auto-clean success message after 5 seconds
+            setTimeout(() => {
+              window.history.replaceState({}, '', '/dashboard');
+            }, 5000);
+          } else {
+            // Try again after 1 second
+            setTimeout(pollSubscription, 1000);
+          }
+        }
+      };
+
+      // Start polling after initial delay for webhook
+      setTimeout(pollSubscription, 2000);
+    } else if (urlParams.get('subscribed') === 'true') {
+      // Show success message
+      setTimeout(() => {
+        // Clean up URL
+        window.history.replaceState({}, '', '/dashboard');
+      }, 5000);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -49,6 +93,9 @@ export default function DashboardPage() {
       getUserSubscription(user.uid).then(setSubscription);
     }
   }, [user]);
+
+  // Show subscription success message
+  const showSubscriptionSuccess = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('subscribed') === 'true';
 
   const tier = subscription && subscription.tier in SUBSCRIPTION_TIERS
     ? SUBSCRIPTION_TIERS[subscription.tier as keyof typeof SUBSCRIPTION_TIERS]
@@ -63,9 +110,101 @@ export default function DashboardPage() {
     localStorage.setItem('quikquill-tutorial-completed', 'true');
   };
 
+  const handleSyncSubscription = async () => {
+    if (!user || !user.email) return;
+
+    setSyncingSubscription(true);
+    try {
+      const response = await fetch('/api/subscription/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          userEmail: user.email,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Refresh subscription data
+        const latestSub = await getUserSubscription(user.uid);
+        setSubscription(latestSub);
+
+        if (data.subscription?.tier === 'pro') {
+          alert('✅ Subscription synced! You now have Pro access.');
+        } else {
+          alert('ℹ️ Subscription synced. No active Pro subscription found.');
+        }
+      } else {
+        alert('Failed to sync: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      alert('Failed to sync subscription. Please try again.');
+    } finally {
+      setSyncingSubscription(false);
+    }
+  };
+
   return (
     <>
       <div className="space-y-6">
+        {/* Subscription Success Banner */}
+        {showSubscriptionSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold mb-1">🎉 Welcome to Pro!</h3>
+                  <p className="text-green-100">
+                    Your subscription is now active. You have unlimited access to all features!
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Manual Sync Banner (if not showing Pro after checkout) */}
+        {!showSubscriptionSuccess && subscription?.tier === 'free' && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('success') === 'true' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <Clock className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold mb-1">Processing Your Subscription</h3>
+                  <p className="text-blue-100">
+                    Your payment was successful! If you don't see Pro access, click Sync below.
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={handleSyncSubscription}
+                disabled={syncingSubscription}
+                className="bg-white text-blue-600 hover:bg-blue-50"
+              >
+                {syncingSubscription ? 'Syncing...' : 'Sync Now'}
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Welcome Section */}
         <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-2xl p-6 border border-green-200">
           <div className="flex items-center justify-between">
@@ -76,15 +215,43 @@ export default function DashboardPage() {
               <p className="text-green-700">
                 You have {pendingTasks} pending tasks and {agents.length} active AI agents working for you.
               </p>
+              <div className="flex items-center gap-2 mt-2">
+                {subscription?.tier === 'pro' ? (
+                  <Badge className="bg-green-600 text-white border-0">
+                    <Award className="h-3 w-3 mr-1" />
+                    Pro Member
+                  </Badge>
+                ) : (
+                  <Badge className="bg-gray-600 text-white border-0">
+                    Free Trial
+                  </Badge>
+                )}
+                <span className="text-sm text-green-700">
+                  {subscription?.tier === 'pro'
+                    ? `${formatTokenCount(tier?.tokens ?? 0)} tokens/month • Unlimited agents & tasks`
+                    : `${formatTokenCount(tier?.tokens ?? 0)} tokens/month • ${tier?.limits.agents} agent • ${tier?.limits.tasks} tasks`
+                  }
+                </span>
+              </div>
             </div>
             <div className="hidden md:block">
-              <Button
-                onClick={() => router.push('/agents?create=true')}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Agent
-              </Button>
+              {subscription?.tier === 'free' ? (
+                <Button
+                  onClick={() => router.push('/pricing')}
+                  className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Upgrade to Pro
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => router.push('/agents?create=true')}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create New Agent
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -191,6 +358,115 @@ export default function DashboardPage() {
             </Card>
           </motion.div>
         </div>
+
+        {/* Subscription Status Card */}
+        {subscription?.tier === 'free' ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <Card className="border-2 border-green-600 shadow-xl bg-gradient-to-r from-green-50 to-blue-50">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-1">Unlock Full Power 🚀</h3>
+                    <p className="text-sm text-gray-600">Upgrade to Pro for unlimited access</p>
+                  </div>
+                  <Badge className="bg-green-600 text-white border-0">
+                    Limited Time
+                  </Badge>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                    <span className="text-gray-700">Unlimited AI agents</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                    <span className="text-gray-700">Unlimited tasks</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                    <span className="text-gray-700">1M tokens/month (20x more)</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                    <span className="text-gray-700">Priority support</span>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push('/pricing')}
+                  className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Upgrade to Pro - $10/month
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <Card className="border-2 border-green-600 shadow-xl bg-gradient-to-r from-green-50 to-blue-50">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-1 flex items-center">
+                      <Award className="h-5 w-5 text-green-600 mr-2" />
+                      Pro Membership
+                    </h3>
+                    <p className="text-sm text-gray-600">You have full access to all features</p>
+                  </div>
+                  <Badge className="bg-green-600 text-white border-0">
+                    Active
+                  </Badge>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 flex items-center">
+                      <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                      AI Agents
+                    </span>
+                    <span className="font-semibold text-green-700">Unlimited</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 flex items-center">
+                      <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                      Tasks
+                    </span>
+                    <span className="font-semibold text-green-700">Unlimited</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 flex items-center">
+                      <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                      Tokens
+                    </span>
+                    <span className="font-semibold text-green-700">1M/month</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 flex items-center">
+                      <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                      Support
+                    </span>
+                    <span className="font-semibold text-green-700">Priority</span>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push('/billing')}
+                  variant="outline"
+                  className="w-full border-green-600 text-green-700 hover:bg-green-50"
+                >
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Manage Subscription
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Recent Activity & Quick Actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

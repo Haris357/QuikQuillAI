@@ -68,7 +68,7 @@ export default function BillingPage() {
   };
 
   const handleManageBilling = async () => {
-    if (!user) return;
+    if (!user || !user.email) return;
 
     setPortalLoading(true);
     try {
@@ -77,19 +77,26 @@ export default function BillingPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: user.uid }),
+        body: JSON.stringify({
+          userId: user.uid,
+          userEmail: user.email,
+        }),
       });
 
       const data = await response.json();
 
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       if (data.url) {
         window.location.href = data.url;
       } else {
-        alert('Stripe is not configured. Please check your environment variables.');
+        throw new Error('No portal URL returned');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Portal error:', error);
-      alert('Failed to open billing portal');
+      alert(error?.message || 'Failed to open billing portal');
     } finally {
       setPortalLoading(false);
     }

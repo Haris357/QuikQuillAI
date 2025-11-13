@@ -30,15 +30,13 @@ import {
   Pencil,
   Check,
   AlignJustify,
-  Instagram,
-  Twitter,
-  Facebook,
-  Linkedin,
-  Hash,
   Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { revisionService } from '@/lib/supabase-service';
+import { ensureTaskHasRevision } from '@/lib/revision-utils';
 
 interface EditorDrawerProps {
   open: boolean;
@@ -59,16 +57,17 @@ interface AISuggestion {
   action: string;
 }
 
-export function EditorDrawer({ 
-  open, 
-  onClose, 
-  task, 
-  onSave, 
-  onRephrase, 
+export function EditorDrawer({
+  open,
+  onClose,
+  task,
+  onSave,
+  onRephrase,
   onPromptSubmit,
   agentStyle,
-  agentTone 
+  agentTone
 }: EditorDrawerProps) {
+  const { user } = useAuth();
   const [content, setContent] = useState(task.content || '');
   const [revisions, setRevisions] = useState<Revision[]>(task.revisions || []);
   const [currentRevisionIndex, setCurrentRevisionIndex] = useState(0);
@@ -81,15 +80,56 @@ export function EditorDrawer({
   const [editingRevisionId, setEditingRevisionId] = useState<string | null>(null);
   const [editingRevisionName, setEditingRevisionName] = useState('');
   const [isFormattingContent, setIsFormattingContent] = useState(false);
-  const [isGeneratingSocial, setIsGeneratingSocial] = useState(false);
   const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setContent(task.content || '');
-    setRevisions(task.revisions || []);
-    setCurrentRevisionIndex((task.revisions || []).length - 1);
+
+    // Check if task has content but no revisions - create initial revision
+    const initializeRevisions = async () => {
+      if (task.revisions && task.revisions.length > 0) {
+        setRevisions(task.revisions);
+        setCurrentRevisionIndex(task.revisions.length - 1);
+      } else if (task.content && task.content.trim() !== '' && user) {
+        // Task has content but no revisions - ensure it has initial revision
+        try {
+          const initialRevision = await ensureTaskHasRevision(
+            task.id,
+            user.uid,
+            task.content
+          );
+
+          if (initialRevision) {
+            const newRevision = {
+              id: initialRevision.id,
+              content: task.content,
+              timestamp: initialRevision.created_at,
+              type: 'ai-generated' as const,
+              changes: [],
+              name: initialRevision.revision_name || 'Initial Version',
+            };
+
+            setRevisions([newRevision]);
+            setCurrentRevisionIndex(0);
+          } else {
+            setRevisions([]);
+            setCurrentRevisionIndex(0);
+          }
+        } catch (error) {
+          console.error('Error ensuring task has revision:', error);
+          // Fallback to empty revisions
+          setRevisions([]);
+          setCurrentRevisionIndex(0);
+        }
+      } else {
+        setRevisions([]);
+        setCurrentRevisionIndex(0);
+      }
+    };
+
+    initializeRevisions();
     // Don't auto-generate suggestions anymore
-  }, [task]);
+  }, [task, user]);
 
   // Auto-save functionality - debounced
   useEffect(() => {
@@ -211,6 +251,11 @@ Provide only the JSON array, no other text.`;
 
   const applySuggestion = async (suggestion: AISuggestion) => {
     setIsProcessingPrompt(true);
+    if (!user) {
+      setIsProcessingPrompt(false);
+      return;
+    }
+
     try {
       const { applySuggestionToContent } = await import('@/lib/gemini');
 
@@ -223,11 +268,20 @@ Provide only the JSON array, no other text.`;
       // Generate name for this revision
       const revisionName = await generateRevisionName(improvedContent, 'ai-generated');
 
+      // Create revision in database
+      const dbRevision = await revisionService.createRevision(
+        task.id,
+        user.uid,
+        improvedContent,
+        'ai-generated',
+        revisionName
+      );
+
       // Create revision for AI suggestion
       const newRevision: Revision = {
-        id: Date.now().toString(),
+        id: dbRevision.id,
         content: improvedContent,
-        timestamp: new Date().toISOString(),
+        timestamp: dbRevision.created_at,
         type: 'ai-generated',
         changes: [],
         name: revisionName
@@ -256,57 +310,82 @@ Provide only the JSON array, no other text.`;
 
   const handleSave = async (contentToSave?: string) => {
     const finalContent = contentToSave || content;
-    
-    // Generate name for this revision
-    const revisionName = await generateRevisionName(finalContent, 'user-edit');
-    
-    // Create new revision
-    const newRevision: Revision = {
-      id: Date.now().toString(),
-      content: finalContent,
-      timestamp: new Date().toISOString(),
-      type: 'user-edit',
-      changes: [],
-      name: revisionName
-    };
-    
-    const updatedRevisions = [...revisions, newRevision];
-    setRevisions(updatedRevisions);
-    setCurrentRevisionIndex(updatedRevisions.length - 1);
-    setHasUnsavedChanges(false);
 
-    onSave(finalContent, updatedRevisions);
-    toast.success('Content saved successfully!');
+    if (!user) return;
+
+    try {
+      // Generate name for this revision
+      const revisionName = await generateRevisionName(finalContent, 'user-edit');
+
+      // Create revision in database
+      const dbRevision = await revisionService.createRevision(
+        task.id,
+        user.uid,
+        finalContent,
+        'user-edit',
+        revisionName
+      );
+
+      // Create new revision with DB ID
+      const newRevision: Revision = {
+        id: dbRevision.id,
+        content: finalContent,
+        timestamp: dbRevision.created_at,
+        type: 'user-edit',
+        changes: [],
+        name: revisionName
+      };
+
+      const updatedRevisions = [...revisions, newRevision];
+      setRevisions(updatedRevisions);
+      setCurrentRevisionIndex(updatedRevisions.length - 1);
+      setHasUnsavedChanges(false);
+
+      onSave(finalContent, updatedRevisions);
+      toast.success('Content saved successfully!');
+    } catch (error) {
+      console.error('Error saving revision:', error);
+      toast.error('Failed to save revision');
+    }
   };
 
   const handlePromptSubmit = async () => {
-    if (!prompt.trim()) return;
-    
+    if (!prompt.trim() || !user) return;
+
     setIsProcessingPrompt(true);
     try {
       // Modified to preserve formatting
       const modifiedPrompt = `${prompt}
 
 IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, paragraphs, lists, and structure. Only make the requested changes while maintaining the exact same formatting and organization.`;
-      
+
       const aiResponse = await onPromptSubmit(modifiedPrompt);
-      
+
       // Update content
       setContent(aiResponse);
-      
+
       // Generate name for this revision
       const revisionName = await generateRevisionName(aiResponse, 'ai-generated');
-      
+
+      // Create revision in database
+      const dbRevision = await revisionService.createRevision(
+        task.id,
+        user.uid,
+        aiResponse,
+        'ai-generated',
+        revisionName
+      );
+
       // Create revision for AI generation
       const newRevision: Revision = {
-        id: Date.now().toString(),
+        id: dbRevision.id,
         content: aiResponse,
-        timestamp: new Date().toISOString(),
+        timestamp: dbRevision.created_at,
         type: 'ai-generated',
         changes: [],
         name: revisionName
       };
-      
+
       const updatedRevisions = [...revisions, newRevision];
       setRevisions(updatedRevisions);
       setCurrentRevisionIndex(updatedRevisions.length - 1);
@@ -332,22 +411,34 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
     toast.success('Revision restored successfully!');
   };
 
-  const deleteRevision = (index: number) => {
+  const deleteRevision = async (index: number) => {
     if (revisions.length <= 1) {
       toast.error('Cannot delete the last revision');
       return;
     }
-    
-    const updatedRevisions = revisions.filter((_, i) => i !== index);
-    setRevisions(updatedRevisions);
-    
-    if (index === currentRevisionIndex) {
-      const newIndex = Math.min(index, updatedRevisions.length - 1);
-      setCurrentRevisionIndex(newIndex);
-      setContent(updatedRevisions[newIndex].content);
+
+    if (!user) return;
+
+    try {
+      const revisionToDelete = revisions[index];
+
+      // Delete from database
+      await revisionService.deleteRevision(revisionToDelete.id);
+
+      const updatedRevisions = revisions.filter((_, i) => i !== index);
+      setRevisions(updatedRevisions);
+
+      if (index === currentRevisionIndex) {
+        const newIndex = Math.min(index, updatedRevisions.length - 1);
+        setCurrentRevisionIndex(newIndex);
+        setContent(updatedRevisions[newIndex].content);
+      }
+
+      toast.success('Revision deleted');
+    } catch (error) {
+      console.error('Error deleting revision:', error);
+      toast.error('Failed to delete revision');
     }
-    
-    toast.success('Revision deleted');
   };
 
   const startEditingRevisionName = (revision: Revision) => {
@@ -355,14 +446,24 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
     setEditingRevisionName(revision.name || 'Untitled');
   };
 
-  const saveRevisionName = (revisionId: string) => {
-    const updatedRevisions = revisions.map(rev => 
-      rev.id === revisionId ? { ...rev, name: editingRevisionName } : rev
-    );
-    setRevisions(updatedRevisions);
-    setEditingRevisionId(null);
-    setEditingRevisionName('');
-    toast.success('Revision name updated');
+  const saveRevisionName = async (revisionId: string) => {
+    if (!user) return;
+
+    try {
+      // Update in database
+      await revisionService.updateRevisionName(revisionId, editingRevisionName);
+
+      const updatedRevisions = revisions.map(rev =>
+        rev.id === revisionId ? { ...rev, name: editingRevisionName } : rev
+      );
+      setRevisions(updatedRevisions);
+      setEditingRevisionId(null);
+      setEditingRevisionName('');
+      toast.success('Revision name updated');
+    } catch (error) {
+      console.error('Error updating revision name:', error);
+      toast.error('Failed to update revision name');
+    }
   };
 
   const cancelEditingRevisionName = () => {
@@ -376,6 +477,8 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       return;
     }
 
+    if (!user) return;
+
     setIsFormattingContent(true);
     try {
       const { formatContent } = await import('@/lib/gemini');
@@ -388,11 +491,20 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       // Generate name for this revision
       const revisionName = await generateRevisionName(formattedContent, 'ai-generated');
 
+      // Create revision in database
+      const dbRevision = await revisionService.createRevision(
+        task.id,
+        user.uid,
+        formattedContent,
+        'ai-generated',
+        revisionName
+      );
+
       // Create revision for formatted content
       const newRevision: Revision = {
-        id: Date.now().toString(),
+        id: dbRevision.id,
         content: formattedContent,
-        timestamp: new Date().toISOString(),
+        timestamp: dbRevision.created_at,
         type: 'ai-generated',
         changes: [],
         name: revisionName
@@ -419,53 +531,6 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
       return;
     }
     await generateAISuggestions(content);
-  };
-
-  const handleGenerateSocialStory = async (platform: string) => {
-    if (!content || content.trim().length < 20) {
-      toast.error('Need some content to create a social media story');
-      return;
-    }
-
-    setIsGeneratingSocial(true);
-    try {
-      const { generateSocialMediaStory } = await import('@/lib/gemini');
-
-      // Extract topic from content
-      const plainText = content.replace(/<[^>]*>/g, '').trim();
-      const topic = plainText.substring(0, 200);
-
-      const socialContent = await generateSocialMediaStory(topic, platform, agentStyle, agentTone);
-
-      // Update content
-      setContent(socialContent);
-
-      // Generate name for this revision
-      const revisionName = `${platform} Story`;
-
-      // Create revision
-      const newRevision: Revision = {
-        id: Date.now().toString(),
-        content: socialContent,
-        timestamp: new Date().toISOString(),
-        type: 'ai-generated',
-        changes: [],
-        name: revisionName
-      };
-
-      const updatedRevisions = [...revisions, newRevision];
-      setRevisions(updatedRevisions);
-      setCurrentRevisionIndex(updatedRevisions.length - 1);
-
-      onSave(socialContent, updatedRevisions);
-
-      toast.success(`${platform} story created!`);
-    } catch (error) {
-      console.error('Error generating social story:', error);
-      toast.error('Failed to generate story');
-    } finally {
-      setIsGeneratingSocial(false);
-    }
   };
 
   const getRevisionIcon = (type: string) => {
@@ -821,84 +886,39 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
             {/* AI Feature Buttons */}
             <div className="p-4 border-b border-gray-200 bg-white flex-shrink-0">
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h4>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex justify-center">
                 <Button
                   onClick={handleGenerateSuggestions}
                   disabled={isLoadingSuggestions}
-                  className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white shadow-md h-auto py-3 flex-col items-start"
+                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-md h-auto py-3 px-6 flex items-center gap-2"
                 >
-                  <Lightbulb className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">Get Suggestions</span>
-                </Button>
-
-                <Button
-                  onClick={() => handleGenerateSocialStory('Instagram')}
-                  disabled={isGeneratingSocial}
-                  className="bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white shadow-md h-auto py-3 flex-col items-start"
-                >
-                  <Instagram className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">IG Story</span>
-                </Button>
-
-                <Button
-                  onClick={() => handleGenerateSocialStory('Twitter')}
-                  disabled={isGeneratingSocial}
-                  className="bg-gradient-to-r from-sky-500 to-blue-500 hover:from-sky-600 hover:to-blue-600 text-white shadow-md h-auto py-3 flex-col items-start"
-                >
-                  <Twitter className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">Tweet</span>
-                </Button>
-
-                <Button
-                  onClick={() => handleGenerateSocialStory('LinkedIn')}
-                  disabled={isGeneratingSocial}
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md h-auto py-3 flex-col items-start"
-                >
-                  <Linkedin className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">LinkedIn</span>
-                </Button>
-
-                <Button
-                  onClick={() => handleGenerateSocialStory('Facebook')}
-                  disabled={isGeneratingSocial}
-                  className="bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white shadow-md h-auto py-3 flex-col items-start"
-                >
-                  <Facebook className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">FB Post</span>
-                </Button>
-
-                <Button
-                  onClick={() => handleGenerateSocialStory('TikTok')}
-                  disabled={isGeneratingSocial}
-                  className="bg-gradient-to-r from-black to-gray-800 hover:from-gray-900 hover:to-black text-white shadow-md h-auto py-3 flex-col items-start"
-                >
-                  <Hash className="h-4 w-4 mb-1" />
-                  <span className="text-xs font-semibold">TikTok</span>
+                  <Lightbulb className="h-4 w-4" />
+                  <span className="text-sm font-semibold">Get AI Suggestions</span>
                 </Button>
               </div>
             </div>
 
             {/* AI Suggestions List */}
             <div className="flex-1 flex flex-col min-h-0">
-              <div className="px-4 py-3 bg-gradient-to-r from-yellow-50 to-amber-50 border-b border-yellow-100 flex-shrink-0">
-                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-2">
-                  <Lightbulb className="h-3.5 w-3.5 text-yellow-600" />
+              <div className="px-4 py-3 bg-white border-b border-gray-200 flex-shrink-0">
+                <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-green-600" />
                   AI Suggestions
                   {aiSuggestions.length > 0 && (
-                    <Badge className="ml-auto bg-yellow-500 text-white text-xs">
+                    <Badge className="ml-auto bg-green-600 text-white text-xs">
                       {aiSuggestions.length}
                     </Badge>
                   )}
                 </h4>
               </div>
-              
+
               <div className="flex-1 min-h-0">
                 <div className="h-full overflow-y-auto p-4">
                   {isLoadingSuggestions ? (
                     <div className="flex flex-col items-center justify-center py-12">
                       <div className="relative">
-                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-yellow-500"></div>
-                        <Lightbulb className="absolute inset-0 m-auto h-6 w-6 text-yellow-500" />
+                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-green-500"></div>
+                        <Sparkles className="absolute inset-0 m-auto h-6 w-6 text-green-500" />
                       </div>
                       <span className="mt-4 text-sm font-medium text-gray-700">Analyzing your content...</span>
                       <span className="text-xs text-gray-500">Generating smart suggestions</span>
@@ -909,54 +929,31 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
                         aiSuggestions.map((suggestion, index) => (
                           <motion.div
                             key={suggestion.id}
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.2, delay: index * 0.05 }}
                           >
-                            <Card className="group hover:shadow-lg transition-all duration-200 border-2 border-gray-200 hover:border-blue-300 bg-white overflow-hidden">
+                            <Card className="group hover:shadow-md transition-all duration-200 border border-gray-200 hover:border-green-400 bg-white">
                               <CardContent className="p-4">
-                                {/* Type Badge */}
-                                <div className="flex items-start justify-between mb-3">
-                                  <Badge className={`text-xs font-semibold border-0 shadow-sm ${
-                                    suggestion.type === 'improvement' ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white' :
-                                    suggestion.type === 'grammar' ? 'bg-gradient-to-r from-red-500 to-red-600 text-white' :
-                                    suggestion.type === 'style' ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white' :
-                                    'bg-gradient-to-r from-green-500 to-green-600 text-white'
-                                  }`}>
-                                    {suggestion.type.toUpperCase()}
-                                  </Badge>
-                                  <div className={`p-1.5 rounded-lg ${
-                                    suggestion.type === 'improvement' ? 'bg-blue-100' :
-                                    suggestion.type === 'grammar' ? 'bg-red-100' :
-                                    suggestion.type === 'style' ? 'bg-purple-100' : 'bg-green-100'
-                                  }`}>
-                                    <Sparkles className={`h-3.5 w-3.5 ${
-                                      suggestion.type === 'improvement' ? 'text-blue-600' :
-                                      suggestion.type === 'grammar' ? 'text-red-600' :
-                                      suggestion.type === 'style' ? 'text-purple-600' : 'text-green-600'
-                                    }`} />
+                                {/* Header with Icon */}
+                                <div className="flex items-start gap-3 mb-3">
+                                  <div className="p-2 bg-green-100 rounded-lg flex-shrink-0">
+                                    <Sparkles className="h-4 w-4 text-green-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-semibold text-gray-900 text-sm mb-1 leading-tight">
+                                      {suggestion.title}
+                                    </h4>
+                                    <p className="text-xs text-gray-600 leading-relaxed">
+                                      {suggestion.description}
+                                    </p>
                                   </div>
                                 </div>
-
-                                {/* Title */}
-                                <h4 className="font-bold text-gray-900 text-sm mb-2 leading-tight">
-                                  {suggestion.title}
-                                </h4>
-
-                                {/* Description */}
-                                <p className="text-xs text-gray-600 mb-3 leading-relaxed">
-                                  {suggestion.description}
-                                </p>
 
                                 {/* Action Button */}
                                 <Button
                                   size="sm"
-                                  className={`w-full text-xs font-semibold shadow-sm transition-all ${
-                                    suggestion.type === 'improvement' ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700' :
-                                    suggestion.type === 'grammar' ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700' :
-                                    suggestion.type === 'style' ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700' :
-                                    'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
-                                  } text-white border-0`}
+                                  className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-sm text-xs font-medium"
                                   onClick={() => applySuggestion(suggestion)}
                                   disabled={isProcessingPrompt}
                                 >
@@ -967,7 +964,7 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
                                     </>
                                   ) : (
                                     <>
-                                      <Wand2 className="h-3 w-3 mr-1.5" />
+                                      <Wand2 className="h-3 w-3 mr-2" />
                                       {suggestion.action}
                                     </>
                                   )}
@@ -978,20 +975,20 @@ IMPORTANT: Preserve all existing markdown formatting, HTML tags, headings, parag
                         ))
                       ) : (
                         <div className="text-center py-8 px-4">
-                          <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-xl p-6 border border-yellow-200">
-                            <div className="bg-white rounded-full p-3 w-16 h-16 mx-auto mb-3 flex items-center justify-center shadow-sm">
-                              <Lightbulb className="h-8 w-8 text-yellow-600" />
+                          <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                            <div className="bg-white rounded-full p-3 w-14 h-14 mx-auto mb-3 flex items-center justify-center shadow-sm">
+                              <Sparkles className="h-7 w-7 text-green-600" />
                             </div>
-                            <h4 className="font-semibold text-gray-900 mb-1 text-sm">No Suggestions</h4>
-                            <p className="text-xs text-gray-600 mb-3">Click "Get Suggestions" to analyze your content</p>
+                            <h4 className="font-semibold text-gray-900 mb-1 text-sm">No Suggestions Yet</h4>
+                            <p className="text-xs text-gray-600 mb-4">Get AI-powered suggestions to improve your content</p>
                             <Button
                               size="sm"
                               onClick={handleGenerateSuggestions}
                               disabled={isLoadingSuggestions || !content || content.trim().length < 50}
-                              className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white text-xs"
+                              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xs"
                             >
-                              <Lightbulb className="h-3 w-3 mr-1" />
-                              Generate Now
+                              <Sparkles className="h-3 w-3 mr-2" />
+                              Generate Suggestions
                             </Button>
                           </div>
                         </div>

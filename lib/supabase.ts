@@ -33,7 +33,7 @@ export interface Database {
           name: string | null;
           photo_url: string | null;
           subscription_tier: 'free' | 'pro' | 'enterprise';
-          subscription_status: 'active' | 'cancelled' | 'past_due';
+          subscription_status: 'active' | 'inactive' | 'trial' | 'trialing' | 'cancelled' | 'canceled' | 'past_due';
           stripe_customer_id: string | null;
           stripe_subscription_id: string | null;
           trial_ends_at: string | null;
@@ -46,7 +46,7 @@ export interface Database {
           name?: string | null;
           photo_url?: string | null;
           subscription_tier?: 'free' | 'pro' | 'enterprise';
-          subscription_status?: 'active' | 'cancelled' | 'past_due';
+          subscription_status?: 'active' | 'inactive' | 'trial' | 'trialing' | 'cancelled' | 'canceled' | 'past_due';
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
           trial_ends_at?: string | null;
@@ -57,7 +57,7 @@ export interface Database {
           name?: string | null;
           photo_url?: string | null;
           subscription_tier?: 'free' | 'pro' | 'enterprise';
-          subscription_status?: 'active' | 'cancelled' | 'past_due';
+          subscription_status?: 'active' | 'inactive' | 'trial' | 'trialing' | 'cancelled' | 'canceled' | 'past_due';
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
           trial_ends_at?: string | null;

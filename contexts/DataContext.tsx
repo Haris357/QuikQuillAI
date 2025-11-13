@@ -6,6 +6,7 @@ import { Agent, Task } from '@/types';
 import toast from 'react-hot-toast';
 import { canCreateAgent, canCreateTask } from '@/lib/subscription';
 import supabaseService from '@/lib/supabase-service';
+import { ensureTaskHasRevision } from '@/lib/revision-utils';
 
 interface DataContextType {
   agents: Agent[];
@@ -15,7 +16,7 @@ interface DataContextType {
   handleUpdateAgent: (agentId: string, agentData: Omit<Agent, 'id' | 'createdAt' | 'userId'>, scriptFiles?: File[]) => Promise<void>;
   handleDeleteAgent: (agentId: string) => Promise<void>;
   handleCreateTask: (selectedAgentId: string, taskData: any) => Promise<void>;
-  handleUpdateTask: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  handleUpdateTask: (taskId: string, updates: Partial<Task>, revisions?: any[]) => Promise<void>;
   handleDeleteTask: (taskId: string) => Promise<void>;
 }
 
@@ -73,27 +74,45 @@ export function DataProvider({ children }: { children: ReactNode }) {
           userId: agent.user_id,
         }));
 
-        const convertedTasks = tasksData.map((task: any) => ({
-          id: task.id,
-          agentId: task.agent_id,
-          title: task.title,
-          description: task.description,
-          content: task.content || '',
-          status: mapSupabaseStatus(task.status),
-          priority: task.priority,
-          deadline: task.due_date,
-          wordCount: task.word_count,
-          createdAt: task.created_at,
-          updatedAt: task.updated_at,
-          // Additional fields from old schema
-          attachments: [],
-          revisions: [],
-          taskType: 'article',
-          instructions: task.description,
-          targetAudience: '',
-          tone: '',
-          keywords: [],
-          references: '',
+        // Load revisions for each task and ensure each task has at least one revision
+        const convertedTasks = await Promise.all(tasksData.map(async (task: any) => {
+          // Ensure task has initial revision if it has content
+          if (task.content && task.content.trim() !== '') {
+            await ensureTaskHasRevision(task.id, user.uid, task.content);
+          }
+
+          // Load all revisions for the task
+          const revisions = await supabaseService.revision.getTaskRevisions(task.id);
+
+          return {
+            id: task.id,
+            agentId: task.agent_id,
+            title: task.title,
+            description: task.description,
+            content: task.content || '',
+            status: mapSupabaseStatus(task.status),
+            priority: task.priority,
+            deadline: task.due_date,
+            wordCount: task.word_count,
+            createdAt: task.created_at,
+            updatedAt: task.updated_at,
+            // Additional fields from old schema
+            attachments: [],
+            revisions: revisions.map((rev: any) => ({
+              id: rev.id,
+              content: rev.content,
+              timestamp: rev.created_at,
+              type: rev.revision_type,
+              changes: [],
+              name: rev.revision_name || 'Untitled',
+            })),
+            taskType: 'article',
+            instructions: task.description,
+            targetAudience: '',
+            tone: '',
+            keywords: [],
+            references: '',
+          };
         }));
 
         setAgents(convertedAgents);
@@ -167,6 +186,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
 
       if (newAgent) {
+        // Optimistically update local state immediately
+        const convertedAgent: Agent = {
+          id: newAgent.id,
+          name: newAgent.name,
+          role: newAgent.role,
+          description: newAgent.description,
+          writingStyle: newAgent.writing_style,
+          tone: newAgent.tone,
+          keywords: newAgent.keywords || [],
+          expertise: newAgent.expertise,
+          targetAudience: newAgent.target_audience,
+          contentTypes: newAgent.content_types || [],
+          createdAt: newAgent.created_at,
+          userId: newAgent.user_id,
+        };
+        setAgents(prev => [convertedAgent, ...prev]);
+
         // Upload script files if provided
         if (scriptFiles && scriptFiles.length > 0) {
           for (const file of scriptFiles) {
@@ -190,7 +226,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!agent) return;
 
     try {
-      await supabaseService.agent.updateAgent(agentId, {
+      const updatedAgent = await supabaseService.agent.updateAgent(agentId, {
         name: agentData.name,
         role: agentData.role,
         description: agentData.description || null,
@@ -201,6 +237,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
         target_audience: agentData.targetAudience || null,
         content_types: agentData.contentTypes || [],
       });
+
+      if (updatedAgent) {
+        // Optimistically update local state immediately
+        const convertedAgent: Agent = {
+          id: updatedAgent.id,
+          name: updatedAgent.name,
+          role: updatedAgent.role,
+          description: updatedAgent.description,
+          writingStyle: updatedAgent.writing_style,
+          tone: updatedAgent.tone,
+          keywords: updatedAgent.keywords || [],
+          expertise: updatedAgent.expertise,
+          targetAudience: updatedAgent.target_audience,
+          contentTypes: updatedAgent.content_types || [],
+          createdAt: updatedAgent.created_at,
+          userId: updatedAgent.user_id,
+        };
+        setAgents(prev => prev.map(a => a.id === agentId ? convertedAgent : a));
+      }
 
       // Upload script files if provided
       if (scriptFiles && scriptFiles.length > 0) {
@@ -221,11 +276,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     try {
+      // Optimistically remove from local state immediately
+      setAgents(prev => prev.filter(a => a.id !== agentId));
+
       await supabaseService.agent.deleteAgent(agentId);
       toast.success('Agent deleted successfully!');
     } catch (error) {
       console.error('Error deleting agent:', error);
       toast.error('Failed to delete agent');
+      // Reload data to restore the agent if deletion failed
+      supabaseService.agent.getAgents(user.uid).then(agentsData => {
+        const convertedAgents = agentsData.map((agent: any) => ({
+          id: agent.id,
+          name: agent.name,
+          role: agent.role,
+          description: agent.description,
+          writingStyle: agent.writing_style,
+          tone: agent.tone,
+          keywords: agent.keywords || [],
+          expertise: agent.expertise,
+          targetAudience: agent.target_audience,
+          contentTypes: agent.content_types || [],
+          createdAt: agent.created_at,
+          userId: agent.user_id,
+        }));
+        setAgents(convertedAgents);
+      });
     }
   };
 
@@ -317,6 +393,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Optimistically add the task to local state immediately
+      const convertedTask: Task = {
+        id: newTask.id,
+        agentId: newTask.agent_id,
+        title: newTask.title,
+        description: newTask.description,
+        content: newTask.content || '',
+        status: mapSupabaseStatus(newTask.status),
+        priority: newTask.priority,
+        deadline: newTask.due_date,
+        wordCount: newTask.word_count,
+        createdAt: newTask.created_at,
+        updatedAt: newTask.updated_at,
+        attachments: [],
+        revisions: [],
+        taskType: 'article',
+        instructions: newTask.description,
+        targetAudience: '',
+        tone: '',
+        keywords: [],
+        references: '',
+      };
+      setTasks(prev => [convertedTask, ...prev]);
+
       toast.success('Task created! AI is generating content...');
 
       try {
@@ -336,11 +436,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
         );
 
         // Update task with generated content
-        await supabaseService.task.updateTask(newTask.id, {
+        const updatedTask = await supabaseService.task.updateTask(newTask.id, {
           content: generatedContent,
           status: 'completed',
           completed_at: new Date().toISOString(),
         });
+
+        // Update local state with generated content
+        if (updatedTask) {
+          const convertedTask: Task = {
+            id: updatedTask.id,
+            agentId: updatedTask.agent_id,
+            title: updatedTask.title,
+            description: updatedTask.description,
+            content: updatedTask.content || '',
+            status: mapSupabaseStatus(updatedTask.status),
+            priority: updatedTask.priority,
+            deadline: updatedTask.due_date,
+            wordCount: updatedTask.word_count,
+            createdAt: updatedTask.created_at,
+            updatedAt: updatedTask.updated_at,
+            attachments: [],
+            revisions: [],
+            taskType: 'article',
+            instructions: updatedTask.description,
+            targetAudience: '',
+            tone: '',
+            keywords: [],
+            references: '',
+          };
+          setTasks(prev => prev.map(t => t.id === newTask.id ? convertedTask : t));
+        }
 
         toast.success('Content generated successfully!');
       } catch (error) {
@@ -353,7 +479,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+  const handleUpdateTask = async (taskId: string, updates: Partial<Task>, revisions?: any[]) => {
     if (!user) return;
 
     try {
@@ -374,7 +500,44 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (updates.deadline) supabaseUpdates.due_date = updates.deadline;
       if (updates.wordCount) supabaseUpdates.word_count = updates.wordCount;
 
-      await supabaseService.task.updateTask(taskId, supabaseUpdates);
+      const updatedTask = await supabaseService.task.updateTask(taskId, supabaseUpdates);
+
+      if (updatedTask) {
+        // Load updated revisions from database
+        const dbRevisions = await supabaseService.revision.getTaskRevisions(taskId);
+
+        // Optimistically update local state immediately
+        const convertedTask: Task = {
+          id: updatedTask.id,
+          agentId: updatedTask.agent_id,
+          title: updatedTask.title,
+          description: updatedTask.description,
+          content: updatedTask.content || '',
+          status: mapSupabaseStatus(updatedTask.status),
+          priority: updatedTask.priority,
+          deadline: updatedTask.due_date,
+          wordCount: updatedTask.word_count,
+          createdAt: updatedTask.created_at,
+          updatedAt: updatedTask.updated_at,
+          attachments: [],
+          revisions: dbRevisions.map((rev: any) => ({
+            id: rev.id,
+            content: rev.content,
+            timestamp: rev.created_at,
+            type: rev.revision_type,
+            changes: [],
+            name: rev.revision_name || 'Untitled',
+          })),
+          taskType: 'article',
+          instructions: updatedTask.description,
+          targetAudience: '',
+          tone: '',
+          keywords: [],
+          references: '',
+        };
+        setTasks(prev => prev.map(t => t.id === taskId ? convertedTask : t));
+      }
+
       toast.success('Task updated successfully!');
     } catch (error) {
       console.error('Error updating task:', error);
@@ -386,11 +549,39 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     try {
+      // Optimistically remove from local state immediately
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+
       await supabaseService.task.deleteTask(taskId);
       toast.success('Task deleted successfully!');
     } catch (error) {
       console.error('Error deleting task:', error);
       toast.error('Failed to delete task');
+      // Reload data to restore the task if deletion failed
+      supabaseService.task.getTasks(user.uid).then(tasksData => {
+        const convertedTasks = tasksData.map((task: any) => ({
+          id: task.id,
+          agentId: task.agent_id,
+          title: task.title,
+          description: task.description,
+          content: task.content || '',
+          status: mapSupabaseStatus(task.status),
+          priority: task.priority,
+          deadline: task.due_date,
+          wordCount: task.word_count,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+          attachments: [],
+          revisions: [],
+          taskType: 'article',
+          instructions: task.description,
+          targetAudience: '',
+          tone: '',
+          keywords: [],
+          references: '',
+        }));
+        setTasks(convertedTasks);
+      });
     }
   };
 

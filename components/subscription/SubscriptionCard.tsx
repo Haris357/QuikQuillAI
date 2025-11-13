@@ -53,17 +53,24 @@ export function SubscriptionCard() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId: user.uid }),
+        body: JSON.stringify({
+          userId: user.uid,
+          userEmail: user.email,
+        }),
       });
 
       const data = await response.json();
 
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       if (data.url) {
         window.location.href = data.url;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Portal error:', error);
-      alert('Failed to open billing portal');
+      alert(error?.message || 'Failed to open billing portal');
     } finally {
       setLoading(false);
     }

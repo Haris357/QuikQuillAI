@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,8 +50,7 @@ const taskTypes = [
 const priorities = [
   { id: 'low', label: 'Low', color: 'bg-gray-100 text-gray-800', icon: '🔵' },
   { id: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
-  { id: 'high', label: 'High', color: 'bg-orange-100 text-orange-800', icon: '🟠' },
-  { id: 'urgent', label: 'Urgent', color: 'bg-red-100 text-red-800', icon: '🔴' }
+  { id: 'high', label: 'High', color: 'bg-red-100 text-red-800', icon: '🔴' }
 ];
 
 const wordCountRanges = [
@@ -74,8 +73,22 @@ const toneOptions = [
   { id: 'humorous', label: 'Humorous', icon: '😄', description: 'Light and entertaining' }
 ];
 
+const targetAudienceOptions = [
+  { id: 'general', label: 'General Public', icon: '👥' },
+  { id: 'professionals', label: 'Professionals', icon: '👔' },
+  { id: 'students', label: 'Students', icon: '🎓' },
+  { id: 'entrepreneurs', label: 'Entrepreneurs', icon: '💼' },
+  { id: 'developers', label: 'Developers', icon: '💻' },
+  { id: 'marketers', label: 'Marketers', icon: '📊' },
+  { id: 'business-owners', label: 'Business Owners', icon: '🏢' },
+  { id: 'creatives', label: 'Creatives', icon: '🎨' },
+  { id: 'tech-savvy', label: 'Tech Enthusiasts', icon: '🚀' },
+  { id: 'beginners', label: 'Beginners', icon: '🌱' }
+];
+
 export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
+  const [canSubmit, setCanSubmit] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -93,6 +106,15 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
   const [referenceInput, setReferenceInput] = useState('');
   const [showCustomWordCount, setShowCustomWordCount] = useState(false);
   const [customWordCount, setCustomWordCount] = useState('');
+
+  // Reset modal state when modal opens
+  useEffect(() => {
+    if (open) {
+      console.log('Task modal opened, setting to step 1');
+      setCurrentStep(1);
+      setCanSubmit(false);
+    }
+  }, [open]);
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() && !formData.keywords.includes(keywordInput.trim())) {
@@ -130,6 +152,22 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    console.log('Task handleSubmit called, currentStep:', currentStep, 'canSubmit:', canSubmit);
+
+    // Only submit if we're on step 2
+    if (currentStep !== 2) {
+      console.log('Blocked task submission - not on step 2');
+      return;
+    }
+
+    // Prevent accidental submission right after step change
+    if (!canSubmit) {
+      console.log('Blocked task submission - canSubmit is false');
+      return;
+    }
+
     onSave({
       title: formData.title,
       description: formData.description,
@@ -159,14 +197,37 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
       references: []
     });
     setCurrentStep(1);
+    setCanSubmit(false);
     setShowCustomWordCount(false);
     setCustomWordCount('');
     setKeywordInput('');
     setReferenceInput('');
   };
 
-  const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 3));
-  const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
+  const nextStep = () => {
+    console.log('Task nextStep called, current:', currentStep);
+    setCanSubmit(false); // Disable submission when changing steps
+    setCurrentStep(prev => {
+      const next = Math.min(prev + 1, 2);
+      console.log('Moving to task step:', next);
+
+      // Enable submission after a brief delay if moving to step 2
+      if (next === 2) {
+        setTimeout(() => {
+          console.log('Enabling submit for task step 2');
+          setCanSubmit(true);
+        }, 300);
+      }
+
+      return next;
+    });
+  };
+
+  const prevStep = () => {
+    console.log('Task prevStep called, current:', currentStep);
+    setCanSubmit(false);
+    setCurrentStep(prev => Math.max(prev - 1, 1));
+  };
 
   const renderStep1 = () => (
     <div className="space-y-6">
@@ -242,8 +303,8 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
         <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Flag className="h-8 w-8 text-white" />
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Requirements & Settings</h3>
-        <p className="text-gray-600">Set priority, deadline, and content specifications</p>
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">Task Configuration</h3>
+        <p className="text-gray-600">Set requirements, specifications, and instructions</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -376,43 +437,48 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
       </div>
 
       <div>
-        <Label className="text-sm font-semibold text-gray-700 mb-2 block">
+        <Label className="text-sm font-semibold text-gray-700 mb-3 block">
           Target Audience
         </Label>
-        <Input
-          value={formData.targetAudience}
-          onChange={(e) => setFormData(prev => ({ ...prev, targetAudience: e.target.value }))}
-          placeholder="e.g., Tech professionals, Small business owners, Students"
-          className="h-10 border-gray-200 focus:border-green-500 focus:ring-green-500"
-        />
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div className="space-y-6">
-      <div className="text-center mb-6">
-        <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Zap className="h-8 w-8 text-white" />
+        <div className="grid grid-cols-5 gap-2">
+          {targetAudienceOptions.map((audience) => (
+            <Button
+              key={audience.id}
+              type="button"
+              variant={formData.targetAudience === audience.label ? "default" : "outline"}
+              className={`h-auto p-3 flex flex-col items-center gap-1 text-center ${
+                formData.targetAudience === audience.label
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => setFormData(prev => ({ ...prev, targetAudience: audience.label }))}
+            >
+              <span className="text-lg">{audience.icon}</span>
+              <span className="text-xs font-medium leading-tight">{audience.label}</span>
+            </Button>
+          ))}
         </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-2">Additional Instructions</h3>
-        <p className="text-gray-600">Add keywords, references, and special instructions</p>
       </div>
 
       <div>
         <Label className="text-sm font-semibold text-gray-700 mb-2 block">
-          Keywords to Focus On
+          Keywords to Focus On (Optional)
         </Label>
         <div className="flex gap-2 mb-3">
           <Input
             value={keywordInput}
             onChange={(e) => setKeywordInput(e.target.value)}
             placeholder="Add keyword..."
-            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddKeyword())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddKeyword();
+              }
+            }}
             className="flex-1 border-gray-200 focus:border-green-500 focus:ring-green-500"
           />
-          <Button 
-            type="button" 
+          <Button
+            type="button"
             onClick={handleAddKeyword}
             className="bg-green-600 hover:bg-green-700 text-white"
           >
@@ -424,8 +490,8 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
             {formData.keywords.map((keyword, index) => (
               <Badge key={index} variant="secondary" className="flex items-center gap-1 bg-green-100 text-green-800">
                 {keyword}
-                <X 
-                  className="h-3 w-3 cursor-pointer hover:text-red-600" 
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-red-600"
                   onClick={() => handleRemoveKeyword(keyword)}
                 />
               </Badge>
@@ -436,43 +502,7 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
 
       <div>
         <Label className="text-sm font-semibold text-gray-700 mb-2 block">
-          Reference Links/URLs
-        </Label>
-        <div className="flex gap-2 mb-3">
-          <Input
-            value={referenceInput}
-            onChange={(e) => setReferenceInput(e.target.value)}
-            placeholder="Add reference URL..."
-            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddReference())}
-            className="flex-1 border-gray-200 focus:border-green-500 focus:ring-green-500"
-          />
-          <Button 
-            type="button" 
-            onClick={handleAddReference}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            <Link className="h-4 w-4" />
-          </Button>
-        </div>
-        {formData.references.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {formData.references.map((reference, index) => (
-              <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                <Link className="h-4 w-4 text-gray-500" />
-                <span className="flex-1 text-sm text-gray-700 truncate">{reference}</span>
-                <X 
-                  className="h-4 w-4 cursor-pointer text-gray-400 hover:text-red-600" 
-                  onClick={() => handleRemoveReference(reference)}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <Label className="text-sm font-semibold text-gray-700 mb-2 block">
-          Special Instructions
+          Special Instructions (Optional)
         </Label>
         <Textarea
           value={formData.instructions}
@@ -482,32 +512,9 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
           className="border-gray-200 focus:border-green-500 focus:ring-green-500"
         />
       </div>
-      
-      <div>
-        <Label className="text-sm font-semibold text-gray-700 mb-3 block">
-          Reference Materials (Optional)
-        </Label>
-        <div className="grid grid-cols-4 gap-3">
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <FileText className="h-5 w-5 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Documents</p>
-          </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <Image className="h-5 w-5 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Images</p>
-          </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <Video className="h-5 w-5 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Videos</p>
-          </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-green-400 transition-colors cursor-pointer group">
-            <Upload className="h-5 w-5 text-gray-400 group-hover:text-green-500 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Upload</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
+
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -518,10 +525,10 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
               <DialogTitle className="text-2xl font-bold text-gray-900">
                 Add Task for <span className="text-green-600">{agentName}</span>
               </DialogTitle>
-              <p className="text-gray-600 mt-1">Step {currentStep} of 3</p>
+              <p className="text-gray-600 mt-1">Step {currentStep} of 2</p>
             </div>
             <div className="flex items-center space-x-2">
-              {[1, 2, 3].map((step) => (
+              {[1, 2].map((step) => (
                 <div
                   key={step}
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
@@ -543,7 +550,7 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
             <motion.div
               className="bg-gradient-to-r from-green-600 to-green-700 h-2 rounded-full"
               initial={{ width: 0 }}
-              animate={{ width: `${(currentStep / 3) * 100}%` }}
+              animate={{ width: `${(currentStep / 2) * 100}%` }}
               transition={{ duration: 0.3 }}
             />
           </div>
@@ -563,7 +570,6 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
             >
               {currentStep === 1 && renderStep1()}
               {currentStep === 2 && renderStep2()}
-              {currentStep === 3 && renderStep3()}
             </motion.div>
           </AnimatePresence>
           
@@ -583,7 +589,7 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
                 Cancel
               </Button>
               
-              {currentStep < 3 ? (
+              {currentStep < 2 ? (
                 <Button 
                   type="button" 
                   onClick={nextStep}
@@ -596,9 +602,9 @@ export function AddTaskModal({ open, onClose, onSave, agentName }: AddTaskModalP
                   <Clock className="ml-2 h-4 w-4" />
                 </Button>
               ) : (
-                <Button 
-                  type="submit" 
-                  disabled={!formData.title || !formData.description || !formData.taskType}
+                <Button
+                  type="submit"
+                  disabled={!formData.title || !formData.description || !formData.taskType || !canSubmit}
                   className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white"
                 >
                   Create Task

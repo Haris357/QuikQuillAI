@@ -22,11 +22,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { tier, userId, billingPeriod = 'monthly' } = await req.json();
+    const { tier, userId, userEmail, billingPeriod = 'monthly' } = await req.json();
 
+    // Validate required fields
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!userEmail) {
+      return NextResponse.json(
+        { error: 'User email is required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(userEmail)) {
+      return NextResponse.json(
+        { error: 'Invalid email address format' },
         { status: 400 }
       );
     }
@@ -55,15 +72,16 @@ export async function POST(req: NextRequest) {
       : selectedTier.yearlyPriceId;
 
     if (!priceId) {
+      console.error('Missing price ID:', { tier, billingPeriod, monthlyPriceId: selectedTier.monthlyPriceId, yearlyPriceId: selectedTier.yearlyPriceId });
       return NextResponse.json(
-        { error: 'Price ID not configured for this tier and billing period' },
+        { error: 'Price ID not configured for this tier and billing period. Please check your environment variables.' },
         { status: 400 }
       );
     }
 
-    // Create or retrieve Stripe customer
+    // Create or retrieve Stripe customer using email (not UID)
     const customers = await stripe.customers.list({
-      email: userId,
+      email: userEmail,
       limit: 1,
     });
 
@@ -73,7 +91,7 @@ export async function POST(req: NextRequest) {
       customerId = customers.data[0].id;
     } else {
       const customer = await stripe.customers.create({
-        email: userId,
+        email: userEmail, // Use actual email
         metadata: {
           firebaseUID: userId,
         },

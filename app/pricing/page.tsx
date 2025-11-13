@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -21,10 +21,55 @@ import { useAuth } from '@/hooks/useAuth';
 import { SUBSCRIPTION_TIERS } from '@/lib/stripe';
 
 export default function PricingPage() {
-  const { user } = useAuth();
+  const { user, refreshSubscription } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+
+  // Check if user is on pro plan (active or in trial)
+  const isProUser = user?.subscription?.tier === 'pro' && (user?.subscription?.status === 'active' || user?.subscription?.status === 'trial' || user?.subscription?.status === 'trialing');
+  const currentTier = user?.subscription?.tier || 'free';
+
+  // Check for success redirect from Stripe
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const success = urlParams.get('success');
+    const sessionId = urlParams.get('session_id');
+
+    if (success === 'true' && sessionId) {
+      // Show loading state
+      setLoading('processing');
+
+      // Poll for subscription update (webhook might take time)
+      let attempts = 0;
+      const maxAttempts = 10; // Try for 10 seconds
+
+      const pollSubscription = async () => {
+        attempts++;
+
+        if (refreshSubscription) {
+          await refreshSubscription();
+        }
+
+        // Check if subscription is updated
+        if (user?.subscription?.tier === 'pro' || attempts >= maxAttempts) {
+          setLoading(null);
+          // Clean up URL
+          window.history.replaceState({}, '', '/pricing');
+          // Show success and redirect
+          setTimeout(() => {
+            router.push('/dashboard?subscribed=true');
+          }, 1000);
+        } else {
+          // Try again after 1 second
+          setTimeout(pollSubscription, 1000);
+        }
+      };
+
+      // Start polling after initial delay for webhook
+      setTimeout(pollSubscription, 2000);
+    }
+  }, [refreshSubscription, router, user?.subscription?.tier]);
 
   const handleSubscribe = async (tier: string) => {
     if (!user) {
@@ -41,6 +86,11 @@ export default function PricingPage() {
     setLoading(tier);
 
     try {
+      // Validate user has email
+      if (!user.email) {
+        throw new Error('User email not found. Please sign in again.');
+      }
+
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: {
@@ -49,6 +99,7 @@ export default function PricingPage() {
         body: JSON.stringify({
           tier,
           userId: user.uid,
+          userEmail: user.email, // Send actual email for Stripe
           billingPeriod,
         }),
       });
@@ -56,11 +107,12 @@ export default function PricingPage() {
       const data = await response.json();
 
       // Check if the API returned an error
-      if (data.error) {
-        throw new Error(data.error);
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Server error: ${response.status}`);
       }
 
       if (data.url) {
+        // Redirect to Stripe checkout
         window.location.href = data.url;
       } else {
         throw new Error('No checkout URL returned. Please check your Stripe configuration.');
@@ -112,6 +164,19 @@ export default function PricingPage() {
         </div>
       </div>
 
+      {/* Loading overlay for processing */}
+      {loading === 'processing' && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card className="p-8 max-w-md">
+            <CardContent className="text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-200 border-t-green-500 mx-auto mb-4"></div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Processing Your Subscription</h3>
+              <p className="text-gray-600">Please wait while we activate your Pro membership...</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Hero Section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <motion.div
@@ -120,16 +185,24 @@ export default function PricingPage() {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <Badge className="mb-4 bg-green-100 text-green-800 border-green-200">
-            <Clock className="h-3 w-3 mr-1" />
-            3-Day Free Trial • 1 Agent • 10 Tasks
-          </Badge>
+          {isProUser ? (
+            <Badge className="mb-4 bg-blue-600 text-white border-0">
+              <Check className="h-3 w-3 mr-1" />
+              You're on Pro Plan
+            </Badge>
+          ) : (
+            <Badge className="mb-4 bg-green-100 text-green-800 border-green-200">
+              <Clock className="h-3 w-3 mr-1" />
+              3-Day Free Trial • 1 Agent • 10 Tasks
+            </Badge>
+          )}
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-6">
-            Choose Your Plan
+            {isProUser ? 'Manage Your Plan' : 'Choose Your Plan'}
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Start with a 3-day free trial (1 agent, 10 tasks), then upgrade to Pro for unlimited access.
-            All plans include monthly token credits.
+            {isProUser
+              ? 'You have full access to all Pro features. Manage your subscription below.'
+              : 'Start with a 3-day free trial (1 agent, 10 tasks), then upgrade to Pro for unlimited access. All plans include monthly token credits.'}
           </p>
         </motion.div>
 
@@ -179,10 +252,18 @@ export default function PricingPage() {
               transition={{ duration: 0.6, delay: index * 0.1 }}
               className="relative"
             >
-              {plan.popular && (
+              {plan.popular && !isProUser && (
                 <div className="absolute -top-5 left-0 right-0 flex justify-center">
                   <Badge className="bg-green-600 text-white border-0 px-4 py-1">
                     Most Popular
+                  </Badge>
+                </div>
+              )}
+
+              {currentTier === plan.tier && (
+                <div className="absolute -top-5 left-0 right-0 flex justify-center">
+                  <Badge className="bg-blue-600 text-white border-0 px-4 py-1">
+                    ✓ Current Plan
                   </Badge>
                 </div>
               )}
@@ -231,17 +312,23 @@ export default function PricingPage() {
                 <CardFooter>
                   <Button
                     onClick={() => handleSubscribe(plan.tier)}
-                    disabled={loading === plan.tier}
+                    disabled={loading === plan.tier || currentTier === plan.tier}
                     className={`w-full ${
-                      plan.popular
+                      currentTier === plan.tier
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : plan.popular
                         ? 'bg-green-600 hover:bg-green-700'
                         : 'bg-gray-900 hover:bg-gray-800'
                     } text-white`}
                   >
                     {loading === plan.tier ? (
                       'Processing...'
+                    ) : currentTier === plan.tier ? (
+                      'Current Plan'
                     ) : plan.tier === 'free' ? (
                       'Start Free Trial'
+                    ) : isProUser ? (
+                      'Manage Subscription'
                     ) : (
                       `Start 3-Day Trial`
                     )}
