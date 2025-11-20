@@ -30,5 +30,8 @@ try {
   auth = null;
 }
 
+// Database has been migrated to Supabase - export null for backward compatibility
+export const database = null;
+
 export { auth };
 export default app;

@@ -22,7 +22,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
   }
 
   try {
-    const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+    const subscription = await stripe.subscriptions.retrieve(session.subscription as string) as Stripe.Subscription;
     const selectedTier = SUBSCRIPTION_TIERS[tier];
     const billingPeriod = session.metadata?.billingPeriod || 'monthly';
 
@@ -39,6 +39,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
       status = 'past_due';
     }
 
+    // Get period dates from first subscription item (Stripe v18 moved these to items)
+    const firstItem = subscription.items.data[0];
+    const periodStart = firstItem?.current_period_start;
+    const periodEnd = firstItem?.current_period_end;
+
     // Update user in Supabase
     const { error: updateError } = await supabase
       .from('users')
@@ -49,8 +54,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
         subscription_status: status,
         trial_ends_at: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
         stripe_price_id: stripePriceId,
-        subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-        subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+        subscription_period_start: periodStart ? new Date(periodStart * 1000).toISOString() : null,
+        subscription_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
         subscription_cancel_at_period_end: subscription.cancel_at_period_end,
       })
       .eq('id', userId);
@@ -61,7 +66,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
     }
 
     // Record payment if amount paid
-    if (session.amount_total && session.amount_total > 0) {
+    if (session.amount_total && session.amount_total > 0 && periodStart && periodEnd) {
       await recordPayment({
         userId,
         stripeInvoiceId: subscription.latest_invoice as string,
@@ -70,8 +75,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
         status: 'succeeded',
         subscriptionTier: tier,
         billingPeriod: billingPeriod as any,
-        periodStart: new Date(subscription.current_period_start * 1000).toISOString(),
-        periodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+        periodStart: new Date(periodStart * 1000).toISOString(),
+        periodEnd: new Date(periodEnd * 1000).toISOString(),
         description: `${selectedTier.name} - ${billingPeriod} subscription`,
       });
     }
@@ -103,13 +108,18 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription, even
       status = 'canceled';
     }
 
+    // Get period dates from first subscription item (Stripe v18 moved these to items)
+    const firstItem = subscription.items.data[0];
+    const periodStart = firstItem?.current_period_start;
+    const periodEnd = firstItem?.current_period_end;
+
     // Update user in Supabase
     const { error: updateError } = await supabase
       .from('users')
       .update({
         subscription_status: status,
-        subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-        subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+        subscription_period_start: periodStart ? new Date(periodStart * 1000).toISOString() : null,
+        subscription_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
         subscription_cancel_at_period_end: subscription.cancel_at_period_end,
         trial_ends_at: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
       })
@@ -179,7 +189,16 @@ async function handlePaymentFailed(invoice: Stripe.Invoice, eventId: string) {
   if (!stripe) return;
 
   try {
-    const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
+    // Get subscription from invoice line items (Stripe v18 moved subscription from Invoice to InvoiceLineItem)
+    const firstLine = invoice.lines.data[0];
+    const subscriptionId = typeof firstLine?.subscription === 'string' ? firstLine.subscription : firstLine?.subscription?.id;
+
+    if (!subscriptionId) {
+      console.error('No subscription found in invoice');
+      return;
+    }
+
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId) as Stripe.Subscription;
     const userId = subscription.metadata?.firebaseUID;
 
     if (!userId) {
@@ -201,11 +220,10 @@ async function handlePaymentFailed(invoice: Stripe.Invoice, eventId: string) {
     }
 
     // Record failed payment
-    if (invoice.amount_due) {
+    if (invoice.amount_due && invoice.id) {
       await recordPayment({
         userId,
         stripeInvoiceId: invoice.id,
-        stripeChargeId: invoice.charge as string,
         amountCents: invoice.amount_due,
         currency: invoice.currency || 'usd',
         status: 'failed',

@@ -6,9 +6,7 @@ const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 let stripe: Stripe | null = null;
 
 if (stripeSecretKey) {
-  stripe = new Stripe(stripeSecretKey, {
-    apiVersion: '2025-08-27.basil',
-  });
+  stripe = new Stripe(stripeSecretKey);
 } else {
   console.warn('Stripe secret key not found. Stripe functionality will be disabled.');
 }

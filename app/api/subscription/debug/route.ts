@@ -41,17 +41,24 @@ export async function POST(req: NextRequest) {
           stripeInfo = {
             customer_id: customer.id,
             customer_email: customer.email,
-            subscriptions: subscriptions.data.map((sub) => ({
-              id: sub.id,
-              status: sub.status,
-              current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
-              current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-              trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
-              items: sub.items.data.map((item) => ({
-                price_id: item.price.id,
-                product_id: item.price.product,
-              })),
-            })),
+            subscriptions: subscriptions.data.map((sub) => {
+              // Get period dates from first subscription item (Stripe v18 moved these to items)
+              const firstItem = sub.items.data[0];
+              const periodStart = firstItem?.current_period_start;
+              const periodEnd = firstItem?.current_period_end;
+
+              return {
+                id: sub.id,
+                status: sub.status,
+                current_period_start: periodStart ? new Date(periodStart * 1000).toISOString() : null,
+                current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+                trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+                items: sub.items.data.map((item) => ({
+                  price_id: item.price.id,
+                  product_id: item.price.product,
+                })),
+              };
+            }),
           };
         }
       } catch (stripeError: any) {

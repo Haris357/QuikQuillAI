@@ -701,8 +701,6 @@ export function Dashboard() {
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <Sidebar
-        currentView={currentView}
-        onViewChange={setCurrentView}
         agentCount={agents.length}
         taskCount={tasks.length}
         tokensUsed={tokensUsed}

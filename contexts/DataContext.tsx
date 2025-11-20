@@ -111,7 +111,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             targetAudience: '',
             tone: '',
             keywords: [],
-            references: '',
+            references: [],
           };
         }));
 
@@ -157,7 +157,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         id: Date.now().toString(),
         ...agentData,
         createdAt: new Date().toISOString(),
-        userId: user?.uid || 'demo-user',
+        userId: 'demo-user',
       };
       setAgents(prev => [...prev, newAgent]);
       toast.success('AI Agent created successfully! (Demo Mode)');
@@ -191,12 +191,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
           id: newAgent.id,
           name: newAgent.name,
           role: newAgent.role,
-          description: newAgent.description,
-          writingStyle: newAgent.writing_style,
-          tone: newAgent.tone,
+          description: newAgent.description || undefined,
+          writingStyle: newAgent.writing_style || '',
+          tone: newAgent.tone || '',
           keywords: newAgent.keywords || [],
-          expertise: newAgent.expertise,
-          targetAudience: newAgent.target_audience,
+          expertise: newAgent.expertise || undefined,
+          targetAudience: newAgent.target_audience || undefined,
           contentTypes: newAgent.content_types || [],
           createdAt: newAgent.created_at,
           userId: newAgent.user_id,
@@ -244,12 +244,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
           id: updatedAgent.id,
           name: updatedAgent.name,
           role: updatedAgent.role,
-          description: updatedAgent.description,
-          writingStyle: updatedAgent.writing_style,
-          tone: updatedAgent.tone,
+          description: updatedAgent.description || undefined,
+          writingStyle: updatedAgent.writing_style || '',
+          tone: updatedAgent.tone || '',
           keywords: updatedAgent.keywords || [],
-          expertise: updatedAgent.expertise,
-          targetAudience: updatedAgent.target_audience,
+          expertise: updatedAgent.expertise || undefined,
+          targetAudience: updatedAgent.target_audience || undefined,
           contentTypes: updatedAgent.content_types || [],
           createdAt: updatedAgent.created_at,
           userId: updatedAgent.user_id,
@@ -396,24 +396,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Optimistically add the task to local state immediately
       const convertedTask: Task = {
         id: newTask.id,
-        agentId: newTask.agent_id,
+        agentId: newTask.agent_id || selectedAgentId,
         title: newTask.title,
-        description: newTask.description,
+        description: newTask.description || '',
         content: newTask.content || '',
         status: mapSupabaseStatus(newTask.status),
-        priority: newTask.priority,
-        deadline: newTask.due_date,
-        wordCount: newTask.word_count,
+        priority: newTask.priority || undefined,
+        deadline: newTask.due_date || undefined,
+        wordCount: newTask.word_count || undefined,
         createdAt: newTask.created_at,
         updatedAt: newTask.updated_at,
         attachments: [],
         revisions: [],
         taskType: 'article',
-        instructions: newTask.description,
+        instructions: newTask.description || '',
         targetAudience: '',
         tone: '',
         keywords: [],
-        references: '',
+        references: [],
       };
       setTasks(prev => [convertedTask, ...prev]);
 
@@ -431,6 +431,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
           taskData.tone || selectedAgent.tone,
           taskData.keywords && taskData.keywords.length > 0 ? taskData.keywords : selectedAgent.keywords || [],
           taskData.wordCount,
+          taskData.targetAudience,
+          taskData.instructions,
           taskData.references,
           scriptContents // Pass script context to AI
         );
@@ -446,24 +448,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (updatedTask) {
           const convertedTask: Task = {
             id: updatedTask.id,
-            agentId: updatedTask.agent_id,
+            agentId: updatedTask.agent_id || selectedAgentId,
             title: updatedTask.title,
-            description: updatedTask.description,
+            description: updatedTask.description || '',
             content: updatedTask.content || '',
             status: mapSupabaseStatus(updatedTask.status),
-            priority: updatedTask.priority,
-            deadline: updatedTask.due_date,
-            wordCount: updatedTask.word_count,
+            priority: updatedTask.priority || undefined,
+            deadline: updatedTask.due_date || undefined,
+            wordCount: updatedTask.word_count || undefined,
             createdAt: updatedTask.created_at,
             updatedAt: updatedTask.updated_at,
             attachments: [],
             revisions: [],
             taskType: 'article',
-            instructions: updatedTask.description,
+            instructions: updatedTask.description || '',
             targetAudience: '',
             tone: '',
             keywords: [],
-            references: '',
+            references: [],
           };
           setTasks(prev => prev.map(t => t.id === newTask.id ? convertedTask : t));
         }
@@ -509,14 +511,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Optimistically update local state immediately
         const convertedTask: Task = {
           id: updatedTask.id,
-          agentId: updatedTask.agent_id,
+          agentId: updatedTask.agent_id || task.agentId,
           title: updatedTask.title,
-          description: updatedTask.description,
+          description: updatedTask.description || '',
           content: updatedTask.content || '',
           status: mapSupabaseStatus(updatedTask.status),
-          priority: updatedTask.priority,
-          deadline: updatedTask.due_date,
-          wordCount: updatedTask.word_count,
+          priority: updatedTask.priority || undefined,
+          deadline: updatedTask.due_date || undefined,
+          wordCount: updatedTask.word_count || undefined,
           createdAt: updatedTask.created_at,
           updatedAt: updatedTask.updated_at,
           attachments: [],
@@ -529,11 +531,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
             name: rev.revision_name || 'Untitled',
           })),
           taskType: 'article',
-          instructions: updatedTask.description,
+          instructions: updatedTask.description || '',
           targetAudience: '',
           tone: '',
           keywords: [],
-          references: '',
+          references: [],
         };
         setTasks(prev => prev.map(t => t.id === taskId ? convertedTask : t));
       }
@@ -578,7 +580,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           targetAudience: '',
           tone: '',
           keywords: [],
-          references: '',
+          references: [],
         }));
         setTasks(convertedTasks);
       });

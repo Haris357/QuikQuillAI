@@ -72,7 +72,7 @@ export async function getSubscriptionDetails(userId: string): Promise<Subscripti
       return null;
     }
 
-    return data;
+    return data as SubscriptionDetails;
   } catch (error) {
     console.error('Error getting subscription details:', error);
     return null;
@@ -157,13 +157,18 @@ export async function syncSubscriptionFromStripe(
         : null,
     });
 
+    // Get period dates from first subscription item (Stripe v18 moved these to items)
+    const firstItem = subscription.items.data[0];
+    const periodStart = firstItem?.current_period_start;
+    const periodEnd = firstItem?.current_period_end;
+
     // Update additional subscription fields
     await supabase
       .from('users')
       .update({
         stripe_price_id: priceId,
-        subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-        subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+        subscription_period_start: periodStart ? new Date(periodStart * 1000).toISOString() : null,
+        subscription_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
         subscription_cancel_at_period_end: subscription.cancel_at_period_end,
       })
       .eq('id', userId);
@@ -391,7 +396,7 @@ export async function getSubscriptionAnalytics(): Promise<SubscriptionAnalytics 
       return null;
     }
 
-    return data;
+    return data as SubscriptionAnalytics;
   } catch (error) {
     console.error('Error getting subscription analytics:', error);
     return null;
